@@ -3,12 +3,20 @@ class MirroringSettings {
   final double contrast;
   final double saturation;
   final double sharpness;
-  final double hue; // New: Tono/Matiz
-  final double exposure; // New: Exposición Digital
+  final double hue;
+  final double exposure;
   final bool isAudioEnabled;
-  final bool isAntiScreensaverEnabled; // Matar screensaver de proyectores viejos
+  final bool isAntiScreensaverEnabled;
+
+  /// 'Auto' (según la pantalla del receptor), '480p', '720p', '1080p', '2K', '4K'.
   final String resolution;
   final int fps;
+
+  /// Códec de video preferido: 'auto', 'VP8', 'VP9', 'H264' o 'AV1'.
+  final String codec;
+
+  static const resolutions = ['Auto', '480p', '720p', '1080p', '2K', '4K'];
+  static const codecs = ['auto', 'VP8', 'VP9', 'H264', 'AV1'];
 
   MirroringSettings({
     this.brightness = 1.0,
@@ -19,8 +27,9 @@ class MirroringSettings {
     this.exposure = 0.0,
     this.isAudioEnabled = true,
     this.isAntiScreensaverEnabled = true,
-    this.resolution = '1080p',
+    this.resolution = 'Auto',
     this.fps = 30,
+    this.codec = 'auto',
   });
 
   MirroringSettings copyWith({
@@ -34,6 +43,7 @@ class MirroringSettings {
     bool? isAntiScreensaverEnabled,
     String? resolution,
     int? fps,
+    String? codec,
   }) {
     return MirroringSettings(
       brightness: brightness ?? this.brightness,
@@ -46,6 +56,7 @@ class MirroringSettings {
       isAntiScreensaverEnabled: isAntiScreensaverEnabled ?? this.isAntiScreensaverEnabled,
       resolution: resolution ?? this.resolution,
       fps: fps ?? this.fps,
+      codec: codec ?? this.codec,
     );
   }
 
@@ -61,6 +72,7 @@ class MirroringSettings {
       'isAntiScreensaverEnabled': isAntiScreensaverEnabled,
       'resolution': resolution,
       'fps': fps,
+      'codec': codec,
     };
   }
 
@@ -74,8 +86,23 @@ class MirroringSettings {
       exposure: (map['exposure'] ?? 0.0).toDouble(),
       isAudioEnabled: map['isAudioEnabled'] ?? true,
       isAntiScreensaverEnabled: map['isAntiScreensaverEnabled'] ?? true,
-      resolution: map['resolution'] ?? '1080p',
+      resolution: map['resolution'] ?? 'Auto',
       fps: (map['fps'] ?? 30).toInt(),
+      codec: map['codec'] ?? 'auto',
     );
+  }
+
+  /// Resolución concreta a usar cuando está en 'Auto', según la pantalla del
+  /// receptor (en píxeles físicos). Sin datos, 1080p.
+  static String resolveAuto(int? receiverWidth, int? receiverHeight) {
+    final h = receiverHeight ?? 0;
+    final w = receiverWidth ?? 0;
+    final shortSide = h < w ? h : w;
+    if (shortSide <= 0) return '1080p';
+    if (shortSide >= 2000) return '4K';
+    if (shortSide >= 1300) return '2K';
+    if (shortSide >= 1000) return '1080p';
+    if (shortSide >= 700) return '720p';
+    return '480p';
   }
 }

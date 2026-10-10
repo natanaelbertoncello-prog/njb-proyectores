@@ -42,6 +42,9 @@ class _ReceiverModePageState extends ConsumerState<ReceiverModePage> {
   // Estadísticas reales de la conexión (WebRTC getStats).
   double _currentBitrateMbps = 0.0;
   int _fpsReal = 0;
+  int _frameWidth = 0;
+  int _frameHeight = 0;
+  String _codec = '';
   double? _rttMs;
   double _prevBytesReceived = 0;
   DateTime? _prevStatsTime;
@@ -137,11 +140,19 @@ class _ReceiverModePageState extends ConsumerState<ReceiverModePage> {
       double? bytesReceived;
       int? fps;
       double? rttMs;
+      int w = 0, h = 0;
+      String? codecId;
+      final codecs = <String, String>{};
 
       for (final report in reports) {
-        if (report.type == 'inbound-rtp' && report.values['kind'] == 'video') {
+        if (report.type == 'codec') {
+          codecs[report.id] = (report.values['mimeType'] ?? '').toString();
+        } else if (report.type == 'inbound-rtp' && report.values['kind'] == 'video') {
           bytesReceived = _asDouble(report.values['bytesReceived']);
           fps = _asDouble(report.values['framesPerSecond'])?.round();
+          w = _asDouble(report.values['frameWidth'])?.toInt() ?? 0;
+          h = _asDouble(report.values['frameHeight'])?.toInt() ?? 0;
+          codecId = report.values['codecId']?.toString();
         } else if (report.type == 'candidate-pair' &&
             report.values['state'] == 'succeeded' &&
             report.values['currentRoundTripTime'] != null) {
@@ -166,6 +177,11 @@ class _ReceiverModePageState extends ConsumerState<ReceiverModePage> {
         setState(() {
           _currentBitrateMbps = bitrateMbps < 0 ? 0 : bitrateMbps;
           if (fps != null) _fpsReal = fps;
+          if (w > 0) {
+            _frameWidth = w;
+            _frameHeight = h;
+          }
+          if (codecId != null) _codec = (codecs[codecId] ?? '').replaceFirst('video/', '');
           _rttMs = rttMs;
         });
       }
@@ -248,6 +264,9 @@ class _ReceiverModePageState extends ConsumerState<ReceiverModePage> {
       _lastDisconnectReason = reason;
       _senderPeer = null;
       _fpsReal = 0;
+      _frameWidth = 0;
+      _frameHeight = 0;
+      _codec = '';
       _currentBitrateMbps = 0;
       _rttMs = null;
       _showControls = true;
@@ -372,7 +391,8 @@ class _ReceiverModePageState extends ConsumerState<ReceiverModePage> {
                                     border: Border.all(color: neonPink.withValues(alpha: 0.6), width: 1),
                                   ),
                                   child: Text(
-                                    '${_settings.resolution} @ ${_fpsReal}FPS | ${_currentBitrateMbps.toStringAsFixed(1)} Mbps'
+                                    '${_frameWidth > 0 ? '${_frameWidth}x$_frameHeight' : _settings.resolution} @ ${_fpsReal}FPS | ${_currentBitrateMbps.toStringAsFixed(1)} Mbps'
+                                    '${_codec.isNotEmpty ? ' | $_codec' : ''}'
                                     '${_senderPeer != null ? ' | EMISOR ${_senderPeer!.platform.toUpperCase()} v${_senderPeer!.version}' : ''}',
                                     style: GoogleFonts.orbitron(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
                                     overflow: TextOverflow.ellipsis,

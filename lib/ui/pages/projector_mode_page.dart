@@ -277,10 +277,15 @@ class _ProjectorModePageState extends ConsumerState<ProjectorModePage> {
                               ),
                             ),
                             const SizedBox(width: 10),
-                            Text(
-                              "PROYECTANDO EN ${mirroringState.settings.resolution} @ ${mirroringState.settings.fps}FPS"
-                              "${mirroringState.receiverPeer != null ? '  →  ${mirroringState.receiverPeer!.name} v${mirroringState.receiverPeer!.version}' : (widget.receiverIp != null ? '  →  ${widget.receiverIp}' : '')}",
-                              style: GoogleFonts.orbitron(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 11, letterSpacing: 1),
+                            Flexible(
+                              child: Text(
+                                mirroringState.stats != null
+                                    ? mirroringState.stats!.summary
+                                    : "PROYECTANDO EN ${mirroringState.effectiveResolution} @ ${mirroringState.settings.fps}FPS"
+                                        "${mirroringState.receiverPeer != null ? '  →  ${mirroringState.receiverPeer!.name} ${mirroringState.receiverPeer!.screenLabel}' : (widget.receiverIp != null ? '  →  ${widget.receiverIp}' : '')}",
+                                style: GoogleFonts.orbitron(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 11, letterSpacing: 1),
+                                overflow: TextOverflow.ellipsis,
+                              ),
                             ),
                             if (mirroringState.settings.isAntiScreensaverEnabled) ...[
                               const SizedBox(width: 14),

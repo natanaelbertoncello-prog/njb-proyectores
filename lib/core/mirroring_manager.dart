@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io' show Platform;
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -5,11 +6,54 @@ import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:flutter/services.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
+import '../services/discovery_service.dart';
 import '../services/signaling_service.dart';
 import '../models/mirroring_settings.dart';
 import 'app_config.dart';
 
 enum MirroringStatus { idle, connecting, mirroring, error }
+
+/// Lo que realmente está saliendo hacia el receptor (WebRTC getStats).
+class SenderStats {
+  final int width;
+  final int height;
+  final int fps;
+  final double bitrateMbps;
+  final String codec;
+
+  /// 'none', 'cpu', 'bandwidth' u 'other'.
+  final String limitation;
+  final double? rttMs;
+
+  const SenderStats({
+    this.width = 0,
+    this.height = 0,
+    this.fps = 0,
+    this.bitrateMbps = 0,
+    this.codec = '',
+    this.limitation = 'none',
+    this.rttMs,
+  });
+
+  String get limitationLabel {
+    switch (limitation) {
+      case 'cpu':
+        return 'LÍMITE: CPU DE LA PC';
+      case 'bandwidth':
+        return 'LÍMITE: RED';
+      case 'other':
+        return 'LÍMITE: OTRO';
+      default:
+        return 'SIN LÍMITE';
+    }
+  }
+
+  String get summary {
+    if (width == 0) return 'ENVIANDO…';
+    return '${width}x$height @ ${fps}FPS • ${bitrateMbps.toStringAsFixed(1)} Mbps'
+        '${codec.isNotEmpty ? ' • $codec' : ''} • $limitationLabel';
+  }
+}
 
 class MirroringState {
   final MirroringStatus status;
@@ -19,11 +63,16 @@ class MirroringState {
   final DesktopCapturerSource? lastSource;
   final String? lastReceiverIp;
 
-  /// Datos del receptor conectado (nombre, versión).
+  /// Datos del receptor conectado (nombre, versión, pantalla).
   final PeerInfo? receiverPeer;
+
+  /// Resolución concreta en uso (resuelve 'Auto').
+  final String effectiveResolution;
 
   /// Mensaje informativo (por ejemplo "Reconectando 2/5").
   final String? statusMessage;
+
+  final SenderStats? stats;
 
   MirroringState({
     this.status = MirroringStatus.idle,
@@ -33,7 +82,9 @@ class MirroringState {
     this.lastSource,
     this.lastReceiverIp,
     this.receiverPeer,
+    this.effectiveResolution = '1080p',
     this.statusMessage,
+    this.stats,
   }) : settings = settings ?? MirroringSettings();
 
   MirroringState copyWith({
@@ -44,9 +95,12 @@ class MirroringState {
     DesktopCapturerSource? lastSource,
     String? lastReceiverIp,
     PeerInfo? receiverPeer,
+    String? effectiveResolution,
     String? statusMessage,
+    SenderStats? stats,
     bool clearError = false,
     bool clearPeer = false,
+    bool clearStats = false,
   }) {
     return MirroringState(
       status: status ?? this.status,
@@ -56,7 +110,9 @@ class MirroringState {
       lastSource: lastSource ?? this.lastSource,
       lastReceiverIp: lastReceiverIp ?? this.lastReceiverIp,
       receiverPeer: clearPeer ? null : (receiverPeer ?? this.receiverPeer),
+      effectiveResolution: effectiveResolution ?? this.effectiveResolution,
       statusMessage: statusMessage,
+      stats: clearStats ? null : (stats ?? this.stats),
     );
   }
 }
@@ -76,8 +132,14 @@ class MirroringManager extends StateNotifier<MirroringState> {
   SignalingService? _signaling;
   bool _stopping = false;
   int _session = 0;
+  Timer? _statsTimer;
+  double _prevBytesSent = 0;
+  DateTime? _prevStatsTime;
 
   bool get _isAndroid => !kIsWeb && Platform.isAndroid;
+
+  /// Ajustes tal como se envían al receptor y al codificador (sin 'Auto').
+  MirroringSettings get _effectiveSettings => state.settings.copyWith(resolution: state.effectiveResolution);
 
   Future<void> _stopNativeService() async {
     if (!_isAndroid) return;
@@ -102,6 +164,7 @@ class MirroringManager extends StateNotifier<MirroringState> {
       lastReceiverIp: targetIp,
       clearError: true,
       clearPeer: true,
+      clearStats: true,
       statusMessage: 'Preparando captura…',
     );
 
@@ -116,6 +179,19 @@ class MirroringManager extends StateNotifier<MirroringState> {
       } catch (e) {
         debugPrint('Wakelock: $e');
       }
+
+      // Resolución 'Auto': preguntamos al receptor el tamaño de su pantalla
+      // antes de capturar, para mandar exactamente lo que puede mostrar.
+      String effective = state.settings.resolution;
+      if (effective == 'Auto') {
+        ReceiverInfo? info;
+        if (targetIp != null && targetIp.isNotEmpty) {
+          info = await DiscoveryService.probeReceiver(targetIp, timeout: const Duration(seconds: 2));
+        }
+        effective = MirroringSettings.resolveAuto(info?.screenWidth, info?.screenHeight);
+      }
+      if (session != _session) return;
+      state = state.copyWith(effectiveResolution: effective, statusMessage: 'Capturando en $effective…');
 
       // Android 14+: el servicio en primer plano de tipo mediaProjection tiene
       // que estar corriendo antes de capturar.
@@ -134,7 +210,7 @@ class MirroringManager extends StateNotifier<MirroringState> {
         }
       }
 
-      final quality = _getQualityDimensions();
+      final quality = _getQualityDimensions(effective);
       final Map<String, dynamic> mediaConstraints = {
         'audio': state.settings.isAudioEnabled,
         'video': (selectedSource != null)
@@ -155,7 +231,6 @@ class MirroringManager extends StateNotifier<MirroringState> {
               }
       };
 
-      state = state.copyWith(statusMessage: 'Capturando pantalla…');
       final stream = await navigator.mediaDevices.getDisplayMedia(mediaConstraints);
       if (session != _session) {
         // Se pidió otra captura mientras esperábamos: descartamos esta.
@@ -189,6 +264,7 @@ class MirroringManager extends StateNotifier<MirroringState> {
         clearError: true,
         statusMessage: null,
       );
+      _startStatsTimer();
     } catch (e) {
       debugPrint('Error en startMirroring: $e');
       await _teardownStream();
@@ -223,7 +299,9 @@ class MirroringManager extends StateNotifier<MirroringState> {
       if (identical(_signaling, signaling)) _onReceiverLost(reason);
     };
     _signaling = signaling;
-    await signaling.connectToReceiver(ip, _localStream!, state.settings);
+    _prevBytesSent = 0;
+    _prevStatsTime = null;
+    await signaling.connectToReceiver(ip, _localStream!, _effectiveSettings);
   }
 
   /// El receptor se cayó: intentamos reconectar reutilizando la captura actual.
@@ -266,8 +344,28 @@ class MirroringManager extends StateNotifier<MirroringState> {
     }
   }
 
-  Map<String, int> _getQualityDimensions() {
-    switch (state.settings.resolution) {
+  /// Cambio de códec en vivo: se renegocia la conexión sin volver a capturar.
+  Future<void> _renegotiate() async {
+    final ip = state.lastReceiverIp;
+    if (ip == null || _localStream == null || _stopping) return;
+    final session = _session;
+    state = state.copyWith(status: MirroringStatus.connecting, statusMessage: 'Aplicando códec ${state.settings.codec}…');
+    await _signaling?.dispose();
+    _signaling = null;
+    try {
+      await _connect(ip);
+      if (session == _session) {
+        state = state.copyWith(status: MirroringStatus.mirroring, clearError: true, clearStats: true, statusMessage: null);
+      }
+    } catch (e) {
+      if (session == _session) {
+        state = state.copyWith(status: MirroringStatus.error, errorMessage: 'No se pudo renegociar: $e', statusMessage: null);
+      }
+    }
+  }
+
+  Map<String, int> _getQualityDimensions(String resolution) {
+    switch (resolution) {
       case '4K':
         return {'width': 3840, 'height': 2160};
       case '2K':
@@ -285,32 +383,116 @@ class MirroringManager extends StateNotifier<MirroringState> {
     final oldSettings = state.settings;
     state = state.copyWith(settings: newSettings, statusMessage: state.statusMessage);
 
-    _signaling?.updateSettings(newSettings);
-
     final stream = _localStream;
+    final live = stream != null && state.status == MirroringStatus.mirroring;
+
+    // Resolución o FPS: en escritorio se reinicia la captura (sin pedir
+    // permiso). En Android no: volvería a mostrar el diálogo del sistema.
+    final captureChanged = oldSettings.resolution != newSettings.resolution || oldSettings.fps != newSettings.fps;
+    if (live && captureChanged && !_isAndroid) {
+      await startMirroring(source: state.lastSource, receiverIp: state.lastReceiverIp);
+      return;
+    }
+
+    _signaling?.updateSettings(_effectiveSettings);
+
     if (stream == null) return;
 
     for (final track in stream.getAudioTracks()) {
       track.enabled = newSettings.isAudioEnabled;
     }
 
-    if (oldSettings.fps != newSettings.fps) {
-      final videoTracks = stream.getVideoTracks();
-      if (videoTracks.isNotEmpty) {
-        try {
-          await videoTracks.first.applyConstraints({'frameRate': newSettings.fps});
-        } catch (_) {
-          // Algunos drivers de escritorio necesitan reiniciar la captura.
-          // En Android no lo hacemos: volvería a pedir permiso al usuario.
-          if (!_isAndroid && state.status == MirroringStatus.mirroring) {
-            await startMirroring(source: state.lastSource, receiverIp: state.lastReceiverIp);
-          }
-        }
-      }
+    if (live && oldSettings.codec != newSettings.codec) {
+      await _renegotiate();
     }
   }
 
+  // ---------------------------------------------------------------------------
+  // Estadísticas de envío
+  // ---------------------------------------------------------------------------
+
+  void _startStatsTimer() {
+    _statsTimer?.cancel();
+    _statsTimer = Timer.periodic(const Duration(seconds: 2), (_) => _collectStats());
+  }
+
+  Future<void> _collectStats() async {
+    final pc = _signaling?.peerConnection;
+    if (pc == null || state.status != MirroringStatus.mirroring) return;
+
+    List<StatsReport> reports;
+    try {
+      reports = await pc.getStats();
+    } catch (_) {
+      return;
+    }
+
+    int width = 0, height = 0, fps = 0;
+    double? bytesSent;
+    String limitation = 'none';
+    String? codecId;
+    double? rttMs;
+    final codecs = <String, String>{};
+
+    for (final r in reports) {
+      if (r.type == 'codec') {
+        codecs[r.id] = (r.values['mimeType'] ?? '').toString();
+      } else if (r.type == 'outbound-rtp' && r.values['kind'] == 'video') {
+        width = _asInt(r.values['frameWidth']);
+        height = _asInt(r.values['frameHeight']);
+        fps = _asInt(r.values['framesPerSecond']);
+        bytesSent = _asDouble(r.values['bytesSent']);
+        limitation = (r.values['qualityLimitationReason'] ?? 'none').toString();
+        codecId = r.values['codecId']?.toString();
+      } else if (r.type == 'candidate-pair' &&
+          r.values['state'] == 'succeeded' &&
+          r.values['currentRoundTripTime'] != null) {
+        rttMs = (_asDouble(r.values['currentRoundTripTime']) ?? 0) * 1000;
+      }
+    }
+
+    final now = DateTime.now();
+    double bitrate = state.stats?.bitrateMbps ?? 0;
+    if (bytesSent != null && _prevStatsTime != null) {
+      final seconds = now.difference(_prevStatsTime!).inMilliseconds / 1000;
+      if (seconds > 0) bitrate = ((bytesSent - _prevBytesSent) * 8) / seconds / 1000000;
+    }
+    if (bytesSent != null) {
+      _prevBytesSent = bytesSent;
+      _prevStatsTime = now;
+    }
+
+    final codec = codecId != null ? (codecs[codecId] ?? '').replaceFirst('video/', '') : '';
+
+    if (state.status == MirroringStatus.mirroring) {
+      state = state.copyWith(
+        stats: SenderStats(
+          width: width,
+          height: height,
+          fps: fps,
+          bitrateMbps: bitrate < 0 ? 0 : bitrate,
+          codec: codec,
+          limitation: limitation,
+          rttMs: rttMs,
+        ),
+        statusMessage: state.statusMessage,
+      );
+    }
+  }
+
+  static int _asInt(dynamic v) => v is num ? v.toInt() : (int.tryParse(v?.toString() ?? '') ?? 0);
+  static double? _asDouble(dynamic v) {
+    if (v == null) return null;
+    if (v is num) return v.toDouble();
+    return double.tryParse(v.toString());
+  }
+
+  // ---------------------------------------------------------------------------
+
   Future<void> _teardownStream() async {
+    _statsTimer?.cancel();
+    _statsTimer = null;
+
     final signaling = _signaling;
     _signaling = null;
     await signaling?.dispose();

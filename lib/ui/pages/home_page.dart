@@ -373,6 +373,7 @@ class HomePage extends ConsumerWidget {
       'IP: ${device.host}:${device.port}',
       if (device.version != null) 'v${device.version}',
       if (device.platform != null) device.platform!.toUpperCase(),
+      if (device.screen != null) 'PANTALLA ${device.screen}',
       if (!device.isNjb && device.protocol == DiscoveryProtocol.manual) 'SIN VERIFICAR',
     ];
 

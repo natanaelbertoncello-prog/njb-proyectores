@@ -17,8 +17,16 @@ class ReceiverInfo {
   final String name;
   final String version;
   final String platform;
+  final int? screenWidth;
+  final int? screenHeight;
 
-  const ReceiverInfo({required this.name, required this.version, required this.platform});
+  const ReceiverInfo({
+    required this.name,
+    required this.version,
+    required this.platform,
+    this.screenWidth,
+    this.screenHeight,
+  });
 
   static ReceiverInfo? fromJson(dynamic json) {
     if (json is! Map) return null;
@@ -27,8 +35,12 @@ class ReceiverInfo {
       name: (json['name'] ?? AppConfig.receiverServiceName).toString(),
       version: (json['version'] ?? '?').toString(),
       platform: (json['platform'] ?? '?').toString(),
+      screenWidth: (json['screenWidth'] as num?)?.toInt(),
+      screenHeight: (json['screenHeight'] as num?)?.toInt(),
     );
   }
+
+  String get screenLabel => screenWidth != null && screenHeight != null ? '${screenWidth}x$screenHeight' : '';
 }
 
 /// Descubre receptores NJB en la red local combinando mDNS (instantáneo cuando
@@ -138,6 +150,7 @@ class DiscoveryService extends StateNotifier<List<DiscoveredDevice>> {
       version: info.version,
       platform: info.platform,
       isNjb: true,
+      screen: info.screenLabel.isEmpty ? null : info.screenLabel,
     ));
   }
 
@@ -171,6 +184,7 @@ class DiscoveryService extends StateNotifier<List<DiscoveredDevice>> {
       version: info?.version,
       platform: info?.platform,
       isNjb: info != null,
+      screen: (info?.screenLabel ?? '').isEmpty ? null : info!.screenLabel,
     ));
   }
 
@@ -190,6 +204,7 @@ class DiscoveryService extends StateNotifier<List<DiscoveredDevice>> {
         version: device.version,
         platform: device.platform,
         isNjb: existing.isNjb || device.isNjb,
+        screen: device.screen,
       );
       state = [...state]..[index] = merged;
     }
@@ -213,6 +228,7 @@ class DiscoveryService extends StateNotifier<List<DiscoveredDevice>> {
       version: info?.version,
       platform: info?.platform,
       isNjb: info != null,
+      screen: (info?.screenLabel ?? '').isEmpty ? null : info!.screenLabel,
     ));
     return info != null;
   }

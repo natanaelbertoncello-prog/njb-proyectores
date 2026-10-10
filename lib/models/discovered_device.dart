@@ -16,6 +16,9 @@ class DiscoveredDevice {
   /// `true` si respondió al endpoint `/info` como un receptor NJB.
   final bool isNjb;
 
+  /// Tamaño de pantalla del receptor ("1920x1080"), si lo informó.
+  final String? screen;
+
   const DiscoveredDevice({
     required this.id,
     required this.name,
@@ -25,6 +28,7 @@ class DiscoveredDevice {
     this.version,
     this.platform,
     this.isNjb = false,
+    this.screen,
   });
 
   DiscoveredDevice copyWith({
@@ -33,6 +37,7 @@ class DiscoveredDevice {
     String? version,
     String? platform,
     bool? isNjb,
+    String? screen,
   }) {
     return DiscoveredDevice(
       id: id,
@@ -43,6 +48,7 @@ class DiscoveredDevice {
       version: version ?? this.version,
       platform: platform ?? this.platform,
       isNjb: isNjb ?? this.isNjb,
+      screen: screen ?? this.screen,
     );
   }
 

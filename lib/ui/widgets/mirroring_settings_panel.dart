@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../core/mirroring_manager.dart';
+import '../../models/mirroring_settings.dart';
 
 class MirroringSettingsPanel extends ConsumerWidget {
   final bool isHome;
@@ -52,6 +53,8 @@ class MirroringSettingsPanel extends ConsumerWidget {
             _buildResolutionSelector(context, ref, settings.resolution),
             const SizedBox(height: 14),
             _buildFpsSelector(context, ref, settings.fps),
+            const SizedBox(height: 14),
+            _buildCodecSelector(context, ref, settings.codec),
             const SizedBox(height: 12),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -209,14 +212,15 @@ class MirroringSettingsPanel extends ConsumerWidget {
   }
 
   Widget _buildResolutionSelector(BuildContext context, WidgetRef ref, String currentRes) {
-    final resolutions = ['480p', '720p', '1080p', '2K', '4K'];
+    final effective = ref.watch(mirroringProvider).effectiveResolution;
     return Wrap(
       spacing: 8,
       runSpacing: 8,
-      children: resolutions.map((res) {
+      children: MirroringSettings.resolutions.map((res) {
         final isSelected = res == currentRes;
+        final label = res == 'Auto' ? (isSelected ? 'AUTO ($effective)' : 'AUTO') : res;
         return ChoiceChip(
-          label: Text(res, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+          label: Text(label, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
           selected: isSelected,
           selectedColor: neonPink,
           backgroundColor: Colors.white.withValues(alpha: 0.06),
@@ -272,6 +276,61 @@ class MirroringSettingsPanel extends ConsumerWidget {
               );
             }).toList(),
           ),
+        ),
+      ],
+    );
+  }
+
+  static const _codecHints = {
+    'auto': 'AUTO: deja que la PC y el proyector negocien (suele ser VP8).',
+    'VP8': 'VP8: el más liviano para la PC. Si el HUD dice "LÍMITE: CPU", usá este.',
+    'VP9': 'VP9: texto más nítido con el mismo ancho de banda. Pide más CPU; probalo a 15 o 24 FPS.',
+    'H264': 'H264: el que mejor decodifican los proyectores (por hardware). Buen equilibrio.',
+    'AV1': 'AV1: máxima calidad por Mbps, pero muy pesado. Sólo con PC potente y proyector nuevo.',
+  };
+
+  Widget _buildCodecSelector(BuildContext context, WidgetRef ref, String currentCodec) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            const Text('CÓDEC:', style: TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.bold)),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Wrap(
+                spacing: 8,
+                runSpacing: 6,
+                children: MirroringSettings.codecs.map((codec) {
+                  final isSelected = codec == currentCodec;
+                  return ChoiceChip(
+                    label: Text(codec.toUpperCase(), style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                    selected: isSelected,
+                    selectedColor: goldAccent,
+                    backgroundColor: Colors.white.withValues(alpha: 0.06),
+                    labelStyle: TextStyle(color: isSelected ? Colors.black : Colors.white70),
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      side: BorderSide(color: isSelected ? goldAccent : Colors.transparent),
+                    ),
+                    onSelected: (selected) {
+                      if (selected) {
+                        ref.read(mirroringProvider.notifier).updateSettings(
+                              ref.read(mirroringProvider).settings.copyWith(codec: codec),
+                            );
+                      }
+                    },
+                  );
+                }).toList(),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 6),
+        Text(
+          _codecHints[currentCodec] ?? '',
+          style: const TextStyle(color: Colors.white38, fontSize: 10),
         ),
       ],
     );

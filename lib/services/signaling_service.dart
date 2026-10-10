@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:shelf/shelf.dart';
@@ -22,15 +23,35 @@ class PeerInfo {
   final String version;
   final String platform;
 
-  const PeerInfo({required this.name, required this.version, required this.platform});
+  /// Tamaño físico de la pantalla del otro extremo, en píxeles.
+  final int? screenWidth;
+  final int? screenHeight;
 
-  Map<String, dynamic> toMap() => {'name': name, 'version': version, 'platform': platform};
+  const PeerInfo({
+    required this.name,
+    required this.version,
+    required this.platform,
+    this.screenWidth,
+    this.screenHeight,
+  });
+
+  Map<String, dynamic> toMap() => {
+        'name': name,
+        'version': version,
+        'platform': platform,
+        if (screenWidth != null) 'screenWidth': screenWidth,
+        if (screenHeight != null) 'screenHeight': screenHeight,
+      };
 
   factory PeerInfo.fromMap(Map<dynamic, dynamic> map) => PeerInfo(
         name: (map['name'] ?? '?').toString(),
         version: (map['version'] ?? '?').toString(),
         platform: (map['platform'] ?? '?').toString(),
+        screenWidth: (map['screenWidth'] as num?)?.toInt(),
+        screenHeight: (map['screenHeight'] as num?)?.toInt(),
       );
+
+  String get screenLabel => screenWidth != null && screenHeight != null ? '${screenWidth}x$screenHeight' : '';
 }
 
 /// Señalización WebRTC sobre WebSocket dentro de la LAN.
@@ -68,19 +89,27 @@ class SignalingService {
 
   static Future<Map<String, dynamic>> localInfo() async {
     final version = await CurrentVersion.get();
+    int? w, h;
+    try {
+      final views = ui.PlatformDispatcher.instance.views;
+      if (views.isNotEmpty) {
+        final size = views.first.physicalSize;
+        w = size.width.round();
+        h = size.height.round();
+      }
+    } catch (_) {}
     return {
       'app': 'njb-proyectores',
       'name': AppConfig.receiverServiceName,
       'version': version.withBuild,
       'platform': Platform.operatingSystem,
       'port': AppConfig.signalingPort,
+      if (w != null) 'screenWidth': w,
+      if (h != null) 'screenHeight': h,
     };
   }
 
-  static Future<PeerInfo> _localPeer() async {
-    final info = await localInfo();
-    return PeerInfo(name: info['name'], version: info['version'], platform: info['platform']);
-  }
+  static Future<PeerInfo> _localPeer() async => PeerInfo.fromMap(await localInfo());
 
   // ---------------------------------------------------------------------------
   // RECEPTOR (servidor)
@@ -199,6 +228,8 @@ class SignalingService {
       }
     }
 
+    await _applyCodecPreference(settings.codec);
+
     final offer = await _pc!.createOffer();
     await _pc!.setLocalDescription(offer);
     _send({'type': 'offer', 'sdp': offer.sdp});
@@ -315,6 +346,32 @@ class SignalingService {
     _disconnectGrace?.cancel();
     debugPrint('Señalización: $reason');
     onDisconnected?.call(reason);
+  }
+
+  /// Pone el códec elegido primero en la oferta SDP. Si el receptor no lo
+  /// soporta, la negociación cae sola al siguiente de la lista.
+  Future<void> _applyCodecPreference(String codec) async {
+    if (codec == 'auto' || _pc == null) return;
+    try {
+      final caps = await getRtpSenderCapabilities('video');
+      final all = caps.codecs ?? [];
+      final wanted = 'video/${codec.toUpperCase()}';
+      final preferred = all.where((c) => c.mimeType.toUpperCase() == wanted).toList();
+      if (preferred.isEmpty) {
+        debugPrint('Códec $codec no disponible en este equipo; se usa el automático.');
+        return;
+      }
+      // Primero el elegido, después los auxiliares (rtx/red/ulpfec) y el resto.
+      final rest = all.where((c) => c.mimeType.toUpperCase() != wanted).toList();
+      final ordered = [...preferred, ...rest];
+      for (final t in await _pc!.getTransceivers()) {
+        if (t.sender.track?.kind == 'video') {
+          await t.setCodecPreferences(ordered);
+        }
+      }
+    } catch (e) {
+      debugPrint('No se pudo fijar el códec $codec: $e');
+    }
   }
 
   /// (maxBitrate, minBitrate) en bits/s para cada resolución.
