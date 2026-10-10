@@ -1,0 +1,103 @@
+# Se dispara al subir un tag "vX.Y.Z" (lo hace tools/publicar.ps1).
+# Compila las APK firmadas y el ZIP de Windows y los publica en GitHub Releases.
+# Las apps instaladas consultan ese Release y se actualizan solas.
+name: Publicar versión
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+env:
+  FLUTTER_VERSION: '3.38.9'
+
+jobs:
+  android:
+    name: APK Android
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+
+      - name: Preparar firma de release
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          if [ -z "$KEYSTORE_BASE64" ]; then
+            echo "::error::Falta el secret KEYSTORE_BASE64. Ejecutá tools/secrets_github.ps1 y cargá los 4 secrets en GitHub."
+            exit 1
+          fi
+          mkdir -p android/keystore
+          echo "$KEYSTORE_BASE64" | base64 -d > android/keystore/njb-release.jks
+          cat > android/key.properties <<EOF
+          storeFile=keystore/njb-release.jks
+          storePassword=$KEYSTORE_PASSWORD
+          keyAlias=${KEY_ALIAS:-njb}
+          keyPassword=$KEY_PASSWORD
+          EOF
+
+      - run: flutter pub get
+
+      - name: Compilar APK (firmada, con repo de actualizaciones embebido)
+        run: flutter build apk --release --dart-define=UPDATE_REPO=${{ github.repository }}
+
+      - name: Renombrar artefactos
+        run: |
+          mkdir -p dist
+          cp build/app/outputs/flutter-apk/app-arm64-v8a-release.apk   dist/njb-proyectores-arm64-v8a.apk
+          cp build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk dist/njb-proyectores-armeabi-v7a.apk
+          cp build/app/outputs/flutter-apk/app-x86_64-release.apk      dist/njb-proyectores-x86_64.apk
+          cp build/app/outputs/flutter-apk/app-release.apk             dist/njb-proyectores-universal.apk
+          ls -la dist
+
+      - name: Publicar en GitHub Releases
+        uses: softprops/action-gh-release@v2
+        with:
+          name: NJB Proyectores ${{ github.ref_name }}
+          generate_release_notes: true
+          files: dist/*
+
+  windows:
+    name: App Windows
+    needs: android
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+
+      - run: flutter pub get
+
+      - name: Compilar Windows
+        run: flutter build windows --release --dart-define=UPDATE_REPO=${{ github.repository }}
+
+      - name: Empaquetar
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Compress-Archive -Path build\windows\x64\runner\Release\* -DestinationPath dist\njb-proyectores-windows.zip -Force
+
+      - name: Agregar al Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/njb-proyectores-windows.zip
