@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -12,6 +14,16 @@ class SourcePickerDialog extends StatefulWidget {
 class _SourcePickerDialogState extends State<SourcePickerDialog> {
   List<DesktopCapturerSource> _sources = [];
   bool _isLoading = true;
+
+  /// Ventanas cuya miniatura salió completamente negra: el capturador de
+  /// Windows que usa la librería (GDI) no puede leer ventanas aceleradas por
+  /// GPU (navegadores, Electron, juegos). Se avisa antes de elegirlas.
+  final Set<String> _blackSources = {};
+
+  static final RegExp _browserRegex = RegExp(
+    r'chrome|edge|firefox|brave|opera|vivaldi|chromium',
+    caseSensitive: false,
+  );
 
   @override
   void initState() {
@@ -32,11 +44,99 @@ class _SourcePickerDialogState extends State<SourcePickerDialog> {
           _isLoading = false;
         });
       }
+      _analyzeThumbnails(sources);
     } catch (e) {
       debugPrint('Error cargando fuentes de pantalla: $e');
       if (mounted) {
         setState(() => _isLoading = false);
       }
+    }
+  }
+
+  Future<void> _analyzeThumbnails(List<DesktopCapturerSource> sources) async {
+    final black = <String>{};
+    for (final source in sources) {
+      final bytes = source.thumbnail;
+      if (bytes == null || bytes.isEmpty || source.id.contains('screen')) continue;
+      try {
+        if (await _isMostlyBlack(bytes)) black.add(source.id);
+      } catch (_) {}
+    }
+    if (mounted) {
+      setState(() {
+        _blackSources
+          ..clear()
+          ..addAll(black);
+      });
+    }
+  }
+
+  static Future<bool> _isMostlyBlack(List<int> png) async {
+    final image = await decodeImageFromList(Uint8List.fromList(png));
+    try {
+      final data = await image.toByteData(format: ui.ImageByteFormat.rawRgba);
+      if (data == null) return false;
+      final total = image.width * image.height;
+      if (total == 0) return false;
+      final step = (total / 400).ceil().clamp(1, total);
+      int sampled = 0, dark = 0;
+      for (int i = 0; i < total; i += step) {
+        final o = i * 4;
+        final r = data.getUint8(o), g = data.getUint8(o + 1), b = data.getUint8(o + 2);
+        if (r < 12 && g < 12 && b < 12) dark++;
+        sampled++;
+      }
+      return sampled > 0 && dark / sampled > 0.985;
+    } finally {
+      image.dispose();
+    }
+  }
+
+  bool _isProblematic(DesktopCapturerSource s) =>
+      _blackSources.contains(s.id) || _browserRegex.hasMatch(s.name);
+
+  Future<void> _onSourceTap(DesktopCapturerSource source, {required bool isScreen}) async {
+    if (isScreen || !_isProblematic(source)) {
+      Navigator.pop(context, source);
+      return;
+    }
+
+    final screens = _sources.where((s) => s.id.contains('screen')).toList();
+    final choice = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF130D21),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Text('ESTA VENTANA SE VE EN NEGRO', style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold)),
+        content: const Text(
+          'Windows no deja capturar ventanas con aceleración por GPU (navegadores, Spotify, Discord, juegos): '
+          'llegan al proyector como un rectángulo negro.\n\n'
+          'Opciones:\n'
+          '• Transmitir la PC COMPLETA y maximizar la app que querés mostrar (recomendado).\n'
+          '• En Chrome/Edge: Configuración → Sistema → desactivar "Usar aceleración por hardware", '
+          'reiniciar el navegador y volver a intentar.',
+          style: TextStyle(color: Colors.white70, fontSize: 12),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, 'anyway'),
+            child: const Text('TRANSMITIR IGUAL', style: TextStyle(color: Colors.white38)),
+          ),
+          if (screens.isNotEmpty)
+            ElevatedButton.icon(
+              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF06B6D4), foregroundColor: Colors.black),
+              icon: const Icon(Icons.monitor, size: 16),
+              label: const Text('USAR PC COMPLETA', style: TextStyle(fontWeight: FontWeight.bold)),
+              onPressed: () => Navigator.pop(ctx, 'screen'),
+            ),
+        ],
+      ),
+    );
+    if (!mounted) return;
+    if (choice == 'anyway') {
+      Navigator.pop(context, source);
+    } else if (choice == 'screen') {
+      Navigator.pop(context, screens.first);
     }
   }
 
@@ -212,7 +312,8 @@ class _SourcePickerDialogState extends State<SourcePickerDialog> {
           const SizedBox(width: 10),
           const Expanded(
             child: Text(
-              'NAVEGADORES (Chrome/Edge/Firefox): No minimices el navegador para que aparezca aquí. O usa "PC COMPLETA" para transmitir todo con máxima fluidez.',
+              'Las ventanas con aceleración por GPU (Chrome, Edge, Firefox, Spotify, juegos) Windows las entrega en NEGRO. '
+              'Las marcadas en rojo no van a verse: para esas usá "PC COMPLETA" con la app maximizada.',
               style: TextStyle(color: Colors.white70, fontSize: 10),
             ),
           ),
@@ -253,18 +354,19 @@ class _SourcePickerDialogState extends State<SourcePickerDialog> {
   Widget _buildSourceCard(DesktopCapturerSource source, {required bool isScreen}) {
     const neonPink = Color(0xFFD946EF);
     const electricCyan = Color(0xFF06B6D4);
-    final themeColor = isScreen ? electricCyan : neonPink;
+    final problematic = !isScreen && _isProblematic(source);
+    final themeColor = problematic ? Colors.redAccent : (isScreen ? electricCyan : neonPink);
 
     return Material(
       color: Colors.transparent,
       child: InkWell(
         borderRadius: BorderRadius.circular(18),
-        onTap: () => Navigator.pop(context, source),
+        onTap: () => _onSourceTap(source, isScreen: isScreen),
         child: Ink(
           decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.04),
+            color: (problematic ? Colors.redAccent : Colors.white).withValues(alpha: 0.05),
             borderRadius: BorderRadius.circular(18),
-            border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
+            border: Border.all(color: (problematic ? Colors.redAccent : Colors.white).withValues(alpha: problematic ? 0.5 : 0.1)),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -300,7 +402,9 @@ class _SourcePickerDialogState extends State<SourcePickerDialog> {
                     ),
                     const SizedBox(height: 2),
                     Text(
-                      isScreen ? 'PANTALLA ENTERA' : 'VENTANA DE APP',
+                      problematic
+                          ? (_blackSources.contains(source.id) ? 'SE CAPTURA EN NEGRO' : 'NAVEGADOR: SE VE EN NEGRO')
+                          : (isScreen ? 'PANTALLA ENTERA' : 'VENTANA DE APP'),
                       style: TextStyle(color: themeColor, fontSize: 8, fontWeight: FontWeight.bold, letterSpacing: 0.5),
                     ),
                   ],
