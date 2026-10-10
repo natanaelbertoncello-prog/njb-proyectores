@@ -52,29 +52,33 @@ class MirroringSettingsPanel extends ConsumerWidget {
             _buildResolutionSelector(context, ref, settings.resolution),
             const SizedBox(height: 14),
             _buildFpsSelector(context, ref, settings.fps),
-            if (settings.resolution == '4K' || settings.fps > 60) ...[
-              const SizedBox(height: 12),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                decoration: BoxDecoration(
-                  color: Colors.amber.withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.amber.withValues(alpha: 0.4)),
-                ),
-                child: Row(
-                  children: const [
-                    Icon(Icons.warning_amber_rounded, color: Colors.amber, size: 18),
-                    SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        'RECOMENDACIÓN PARA PROYECTORES v7a: Usar 720p o 1080p @ 30/60 FPS. Configurar 4K a 120 FPS saturará el decodificador de video del proyector y provocará que la app se cierre sola.',
-                        style: TextStyle(color: Colors.white70, fontSize: 10, fontWeight: FontWeight.bold),
-                      ),
-                    ),
-                  ],
-                ),
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: (settings.resolution == '4K' || settings.resolution == '2K' ? Colors.amber : electricCyan).withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: (settings.resolution == '4K' || settings.resolution == '2K' ? Colors.amber : electricCyan).withValues(alpha: 0.4)),
               ),
-            ],
+              child: Row(
+                children: [
+                  Icon(
+                    settings.resolution == '4K' || settings.resolution == '2K' ? Icons.warning_amber_rounded : Icons.lightbulb_outline,
+                    color: settings.resolution == '4K' || settings.resolution == '2K' ? Colors.amber : electricCyan,
+                    size: 18,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      settings.resolution == '4K' || settings.resolution == '2K'
+                          ? 'Los proyectores chinos suelen decodificar hasta 1080p. En 2K/4K la app del proyector puede trabarse o cerrarse. Recomendado: 1080p.'
+                          : 'PARA TEXTO NÍTIDO: 1080p a 15 o 24 FPS. Menos cuadros por segundo = más calidad por cuadro y letras más definidas. Para video o juegos usá 30/60.',
+                      style: const TextStyle(color: Colors.white70, fontSize: 10, fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                ],
+              ),
+            ),
             
             const Divider(color: Colors.white10, height: 36),
             _buildSectionTitle('CALIBRACIÓN EXTREMA DE LENTE Y COLOR'),
@@ -235,7 +239,9 @@ class MirroringSettingsPanel extends ConsumerWidget {
   }
 
   Widget _buildFpsSelector(BuildContext context, WidgetRef ref, int currentFps) {
-    final fpsList = [30, 60, 90, 120];
+    // 15 y 24 fps: ideales para texto, planillas y presentaciones (más
+    // bitrate por cuadro = letras más nítidas). 60 para video o juegos.
+    final fpsList = [15, 24, 30, 60];
     return Row(
       children: [
         const Text('FPS:', style: TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.bold)),

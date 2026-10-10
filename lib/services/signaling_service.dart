@@ -317,19 +317,24 @@ class SignalingService {
     onDisconnected?.call(reason);
   }
 
-  /// (scaleDownFactor, maxBitrate, minBitrate) para cada resolución.
-  static (double, int, int) _encodingParamsForResolution(String resolution) {
+  /// (maxBitrate, minBitrate) en bits/s para cada resolución.
+  ///
+  /// Es contenido de pantalla (texto, bordes finos): necesita bastante más
+  /// bitrate que una videollamada para verse nítido. En LAN sobra ancho de banda.
+  /// La resolución NO se reduce acá: la captura ya se limita al tamaño elegido
+  /// en [MirroringManager]; reducirla otra vez era lo que dejaba todo borroso.
+  static (int, int) _bitrateForResolution(String resolution) {
     switch (resolution) {
       case '4K':
-        return (1.0, 12000000, 6000000);
+        return (30000000, 10000000);
       case '2K':
-        return (1.0, 8000000, 4000000);
+        return (20000000, 7000000);
       case '1080p':
-        return (1.0, 5000000, 2500000);
+        return (14000000, 4000000);
       case '720p':
-        return (1.5, 3000000, 1200000);
+        return (8000000, 2500000);
       default:
-        return (2.25, 1500000, 500000); // 480p
+        return (4000000, 1200000); // 480p
     }
   }
 
@@ -337,12 +342,15 @@ class SignalingService {
     try {
       final params = sender.parameters;
       if (params.encodings != null && params.encodings!.isNotEmpty) {
-        final (scaleDown, maxBitrate, minBitrate) = _encodingParamsForResolution(resolution);
+        final (maxBitrate, minBitrate) = _bitrateForResolution(resolution);
         for (final encoding in params.encodings!) {
-          encoding.scaleResolutionDownBy = scaleDown;
+          encoding.scaleResolutionDownBy = 1.0;
           encoding.maxBitrate = maxBitrate;
           encoding.minBitrate = minBitrate;
         }
+        // Si el codificador se ve exigido, que baje cuadros por segundo pero
+        // nunca la resolución: así el texto se mantiene legible.
+        params.degradationPreference = RTCDegradationPreference.MAINTAIN_RESOLUTION;
         await sender.setParameters(params);
       }
     } catch (e) {
