@@ -19,6 +19,7 @@ class UpdateBanner extends ConsumerWidget {
 
     final notifier = ref.read(updateProvider.notifier);
     final isAndroid = !kIsWeb && Platform.isAndroid;
+    final canSelfInstall = !kIsWeb && (Platform.isAndroid || Platform.isWindows);
     final version = update.release?.version.toString() ?? '';
 
     String title;
@@ -101,11 +102,11 @@ class UpdateBanner extends ConsumerWidget {
                     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                   ),
-                  icon: Icon(isAndroid ? Icons.system_update : Icons.open_in_new, size: 14),
+                  icon: Icon(canSelfInstall ? Icons.system_update : Icons.open_in_new, size: 14),
                   label: Text(
                     update.status == UpdateStatus.readyToInstall
                         ? 'INSTALAR'
-                        : (isAndroid ? 'ACTUALIZAR AHORA' : 'DESCARGAR'),
+                        : (canSelfInstall ? 'ACTUALIZAR AHORA' : 'DESCARGAR'),
                     style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 10),
                   ),
                   onPressed: () {

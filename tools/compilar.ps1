@@ -47,4 +47,13 @@ if ($Windows -or $Todo) {
     flutter build windows --release $define
     if ($LASTEXITCODE -ne 0) { throw 'La compilación Windows falló' }
     Write-Host "`nEjecutable en build\windows\x64\runner\Release\proyectar.exe" -ForegroundColor Green
+
+    $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+    if (Test-Path $iscc) {
+        $version = ([IO.File]::ReadAllText("$root\pubspec.yaml") | Select-String '(?m)^version:\s*([\d.]+)').Matches[0].Groups[1].Value
+        & $iscc /Q /DAppVersion=$version windows\installer\njb-proyectores.iss
+        if ($LASTEXITCODE -eq 0) { Write-Host "Instalador en dist\njb-proyectores-setup.exe" -ForegroundColor Green }
+    } else {
+        Write-Host "Inno Setup no está instalado: no se generó el instalador (winget install JRSoftware.InnoSetup)."
+    }
 }

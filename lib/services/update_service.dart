@@ -85,7 +85,7 @@ class ReleaseInfo {
     }
     if (Platform.isWindows) {
       for (final a in assets) {
-        if (a.name.contains('windows') && a.name.endsWith('.zip')) return a;
+        if (a.name.endsWith('-setup.exe')) return a;
       }
     }
     return null;
@@ -212,11 +212,13 @@ class UpdateService extends StateNotifier<UpdateState> {
   }
 
   /// Android: descarga la APK y abre el instalador del sistema.
+  /// Windows: descarga el instalador y lo ejecuta en silencio (cierra y
+  /// vuelve a abrir la app sola).
   Future<void> downloadAndInstall() async {
     final release = state.release;
     if (release == null || _busy) return;
 
-    if (!Platform.isAndroid) {
+    if (!Platform.isAndroid && !Platform.isWindows) {
       await openReleasePage();
       return;
     }
@@ -224,14 +226,18 @@ class UpdateService extends StateNotifier<UpdateState> {
     _busy = true;
     try {
       List<String> abis = const [];
-      try {
-        final result = await _updater.invokeMethod<List>('getAbis');
-        abis = result?.map((e) => e.toString()).toList() ?? const [];
-      } catch (_) {}
+      if (Platform.isAndroid) {
+        try {
+          final result = await _updater.invokeMethod<List>('getAbis');
+          abis = result?.map((e) => e.toString()).toList() ?? const [];
+        } catch (_) {}
+      }
 
       final asset = release.assetFor(abis: abis);
       if (asset == null) {
-        throw Exception('La versión ${release.version} no tiene una APK compatible con este equipo (${abis.join(', ')}).');
+        throw Exception(Platform.isWindows
+            ? 'La versión ${release.version} no incluye instalador de Windows.'
+            : 'La versión ${release.version} no tiene una APK compatible con este equipo (${abis.join(', ')}).');
       }
 
       state = state.copyWith(status: UpdateStatus.downloading, progress: 0, message: 'Descargando ${asset.name}…');
@@ -292,7 +298,26 @@ class UpdateService extends StateNotifier<UpdateState> {
 
   Future<void> install() async {
     final path = state.downloadedPath;
-    if (path == null || !Platform.isAndroid) return;
+    if (path == null) return;
+
+    if (Platform.isWindows) {
+      state = state.copyWith(status: UpdateStatus.installing, message: 'Instalando… la app se va a reiniciar sola.');
+      try {
+        // Inno Setup en silencio: cierra esta app, instala encima y la vuelve a abrir.
+        await Process.start(
+          path,
+          const ['/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/CLOSEAPPLICATIONS'],
+          mode: ProcessStartMode.detached,
+        );
+        await Future.delayed(const Duration(milliseconds: 800));
+        exit(0);
+      } catch (e) {
+        state = state.copyWith(status: UpdateStatus.error, message: 'No se pudo iniciar el instalador: $e');
+      }
+      return;
+    }
+
+    if (!Platform.isAndroid) return;
     state = state.copyWith(status: UpdateStatus.installing, message: 'Confirmá la instalación en pantalla…');
     try {
       final result = await _updater.invokeMethod<String>('installApk', {'path': path});

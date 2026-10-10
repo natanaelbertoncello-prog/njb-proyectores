@@ -91,13 +91,19 @@ jobs:
       - name: Compilar Windows
         run: flutter build windows --release --dart-define=UPDATE_REPO=${{ github.repository }}
 
-      - name: Empaquetar
+      - name: Crear instalador (Inno Setup) y ZIP portable
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force dist | Out-Null
+          $version = "${{ github.ref_name }}".TrimStart('v')
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" /DAppVersion=$version windows\installer\njb-proyectores.iss
+          if ($LASTEXITCODE -ne 0) { throw "ISCC falló" }
           Compress-Archive -Path build\windows\x64\runner\Release\* -DestinationPath dist\njb-proyectores-windows.zip -Force
+          Get-ChildItem dist
 
       - name: Agregar al Release
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/njb-proyectores-windows.zip
+          files: |
+            dist/njb-proyectores-setup.exe
+            dist/njb-proyectores-windows.zip

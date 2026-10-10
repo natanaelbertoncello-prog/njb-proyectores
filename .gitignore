@@ -48,3 +48,6 @@ app.*.map.json
 
 # Android local config
 /android/local.properties
+
+# Instaladores generados
+/dist/

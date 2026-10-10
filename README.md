@@ -84,10 +84,19 @@ Para volver todo a como estaba: `-Restaurar`.
 ## 4. Actualizaciones automáticas (configurar GitHub una sola vez)
 
 Cómo funciona: `tools/publicar.ps1` sube la versión y crea un tag → GitHub Actions
-compila las APK firmadas y el ZIP de Windows → los publica en **Releases** → cada app
-instalada consulta ese Release al abrir y cada 30 minutos; en Android descarga la APK
-correcta para su procesador y lanza la instalación (la primera vez el proyector pide
-confirmar; desde Android 12 las siguientes son silenciosas).
+compila las APK firmadas y el instalador de Windows → los publica en **Releases** → cada app
+instalada consulta ese Release al abrir y cada 30 minutos.
+
+- **Android (proyector / celular):** descarga la APK correcta para su procesador y lanza
+  la instalación. La primera vez el proyector pide confirmar; desde Android 12 las
+  siguientes son silenciosas.
+- **Windows (PC):** muestra el aviso y, con un clic en "Actualizar ahora", descarga
+  `njb-proyectores-setup.exe`, lo ejecuta en silencio, cierra la app y la vuelve a abrir
+  ya actualizada.
+
+Para instalar en una PC por primera vez: bajar `njb-proyectores-setup.exe` desde
+Releases y ejecutarlo (instalador común, con acceso directo en el escritorio). El ZIP
+`njb-proyectores-windows.zip` es la versión portable, por si no se quiere instalar.
 
 Se eligió GitHub y no Drive ni Firebase porque: es gratis, da URLs de descarga
 directas y estables, versiona todo y además compila por nosotros. Drive no sirve
