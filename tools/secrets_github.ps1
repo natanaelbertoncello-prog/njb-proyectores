@@ -1,10 +1,10 @@
-<#
+﻿<#
 .SYNOPSIS
   Muestra los 4 secrets que hay que cargar en GitHub para que Actions firme las
   APK con la misma clave que usás localmente. Se cargan una sola vez en:
   GitHub -> tu repo -> Settings -> Secrets and variables -> Actions -> New repository secret
 #>
-$ErrorActionPreference = 'Stop'
+$ErrorActionPreference = 'Continue'
 $root = Split-Path $PSScriptRoot -Parent
 $props = Join-Path $root 'android\key.properties'
 if (-not (Test-Path $props)) { throw "No existe android\key.properties. Generá la clave primero (ver README)." }

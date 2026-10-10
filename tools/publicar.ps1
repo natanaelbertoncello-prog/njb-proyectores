@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
   Publica una versión nueva: sube el número de versión, hace commit, crea el tag
   y lo empuja a GitHub. GitHub Actions compila y publica las APK; las apps
@@ -15,14 +15,22 @@ param(
     [string]$Mensaje
 )
 
-$ErrorActionPreference = 'Stop'
+# 'Continue' y no 'Stop': en PowerShell 5.1 las advertencias de git por stderr
+# se convertirían en errores fatales. Los fallos reales se detectan por código de salida.
+$ErrorActionPreference = 'Continue'
+$env:GIT_TERMINAL_PROMPT = '0'
 $root = Split-Path $PSScriptRoot -Parent
 Set-Location $root
 
-git rev-parse --is-inside-work-tree 2>$null | Out-Null
-if ($LASTEXITCODE -ne 0) { throw "Esta carpeta no es un repositorio git. Seguí el paso 'Configurar GitHub' del README." }
+function Invoke-Git {
+    $output = & git @args 2>&1 | ForEach-Object { "$_" }
+    if ($LASTEXITCODE -ne 0) { throw "git $($args -join ' ') falló:`n$($output -join "`n")" }
+    $output | Where-Object { $_ -notmatch '^warning: .*LF will be replaced' }
+}
 
-$remote = git remote get-url origin 2>$null
+Invoke-Git rev-parse --is-inside-work-tree | Out-Null
+
+$remote = (Invoke-Git remote get-url origin | Select-Object -First 1)
 if (-not $remote) { throw "No hay remoto 'origin'. Creá el repo en GitHub y ejecutá: git remote add origin https://github.com/USUARIO/REPO.git" }
 
 # --- Subir versión en pubspec.yaml -------------------------------------------
@@ -47,11 +55,11 @@ Write-Host "Versión: $old  ->  $new" -ForegroundColor Cyan
 
 # --- Commit + tag + push ------------------------------------------------------
 if (-not $Mensaje) { $Mensaje = "Versión $semver" }
-git add -A
-git commit -m $Mensaje | Out-Null
-git tag "v$semver"
-git push origin HEAD
-git push origin "v$semver"
+Invoke-Git add -A | Out-Null
+Invoke-Git commit -m $Mensaje | Out-Null
+Invoke-Git tag "v$semver" | Out-Null
+Invoke-Git push origin HEAD | Out-Host
+Invoke-Git push origin "v$semver" | Out-Host
 
 $web = $remote -replace '\.git$', '' -replace '^git@github\.com:', 'https://github.com/'
 Write-Host ""

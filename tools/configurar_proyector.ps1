@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
   Prepara un proyector Android por ADB (una sola vez): instala la app, le da los
   permisos para apagar el protector de pantalla a nivel sistema y deja la

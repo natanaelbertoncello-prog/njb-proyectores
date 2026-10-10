@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
   Compila la app localmente (APK Android y/o Windows) con el repositorio de
   actualizaciones embebido, igual que lo hace GitHub Actions.
@@ -13,13 +13,14 @@ param(
     [switch]$Todo
 )
 
-$ErrorActionPreference = 'Stop'
+$ErrorActionPreference = 'Continue'
 $root = Split-Path $PSScriptRoot -Parent
 Set-Location $root
 
 # Deducir usuario/repo del remoto git para que la app sepa de dónde actualizarse.
 $repo = ''
-$remote = git remote get-url origin 2>$null
+$remote = (& git remote get-url origin 2>&1 | ForEach-Object { "$_" } | Select-Object -First 1)
+if ($LASTEXITCODE -ne 0) { $remote = $null }
 if ($remote -and $remote -match 'github\.com[:/]([^/]+)/([^/.]+)') {
     $repo = "$($Matches[1])/$($Matches[2])"
     Write-Host "Repositorio de actualizaciones: $repo" -ForegroundColor Cyan
