@@ -48,6 +48,10 @@ class MirroringSettingsPanel extends ConsumerWidget {
               const SizedBox(height: 24),
             ],
             
+            _buildSectionTitle('PERFIL RÁPIDO'),
+            const SizedBox(height: 10),
+            _buildPresetSelector(context, ref, settings),
+            const Divider(color: Colors.white10, height: 32),
             _buildSectionTitle('RESOLUCIÓN Y CUADROS POR SEGUNDO'),
             const SizedBox(height: 12),
             _buildResolutionSelector(context, ref, settings.resolution),
@@ -276,6 +280,50 @@ class MirroringSettingsPanel extends ConsumerWidget {
               );
             }).toList(),
           ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildPresetSelector(BuildContext context, WidgetRef ref, MirroringSettings settings) {
+    final active = settings.activePreset;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: MirroringSettings.presets.entries.map((e) {
+            final isSelected = e.key == active;
+            return ChoiceChip(
+              label: Text(e.key, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+              avatar: Icon(
+                e.key == 'FLUIDO' ? Icons.speed : (e.key == 'TEXTO NÍTIDO' ? Icons.text_fields : Icons.balance),
+                size: 14,
+                color: isSelected ? Colors.black : Colors.white54,
+              ),
+              selected: isSelected,
+              selectedColor: Colors.greenAccent,
+              backgroundColor: Colors.white.withValues(alpha: 0.06),
+              labelStyle: TextStyle(color: isSelected ? Colors.black : Colors.white70),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+                side: BorderSide(color: isSelected ? Colors.greenAccent : Colors.transparent),
+              ),
+              onSelected: (_) {
+                final p = e.value;
+                ref.read(mirroringProvider.notifier).updateSettings(
+                      ref.read(mirroringProvider).settings.copyWith(resolution: p.resolution, fps: p.fps, codec: p.codec),
+                    );
+              },
+            );
+          }).toList(),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          active != null ? MirroringSettings.presets[active]!.hint : 'Ajustes personalizados.',
+          style: const TextStyle(color: Colors.white38, fontSize: 10),
         ),
       ],
     );

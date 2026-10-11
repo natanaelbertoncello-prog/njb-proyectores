@@ -380,18 +380,22 @@ class SignalingService {
   /// bitrate que una videollamada para verse nítido. En LAN sobra ancho de banda.
   /// La resolución NO se reduce acá: la captura ya se limita al tamaño elegido
   /// en [MirroringManager]; reducirla otra vez era lo que dejaba todo borroso.
+  ///
+  /// El mínimo es bajo a propósito: un piso alto en Wi-Fi inestable obliga a
+  /// mandar más de lo que la red aguanta y eso se ve como congelamientos.
+  /// Con piso bajo, ante un bache la imagen se ablanda un instante pero no se corta.
   static (int, int) _bitrateForResolution(String resolution) {
     switch (resolution) {
       case '4K':
-        return (30000000, 10000000);
+        return (30000000, 1500000);
       case '2K':
-        return (20000000, 7000000);
+        return (20000000, 1200000);
       case '1080p':
-        return (14000000, 4000000);
+        return (14000000, 1000000);
       case '720p':
-        return (8000000, 2500000);
+        return (8000000, 700000);
       default:
-        return (4000000, 1200000); // 480p
+        return (4000000, 400000); // 480p
     }
   }
 

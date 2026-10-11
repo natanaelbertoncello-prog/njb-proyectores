@@ -13,10 +13,28 @@ class MirroringSettings {
   final int fps;
 
   /// Códec de video preferido: 'auto', 'VP8', 'VP9', 'H264' o 'AV1'.
+  ///
+  /// Por defecto H264: es el único que los proyectores Android decodifican
+  /// por hardware con seguridad. Con VP8 (el "auto" de WebRTC) muchos
+  /// proyectores decodifican por software y se traban.
   final String codec;
 
   static const resolutions = ['Auto', '480p', '720p', '1080p', '2K', '4K'];
   static const codecs = ['auto', 'VP8', 'VP9', 'H264', 'AV1'];
+
+  /// Perfiles de un toque.
+  static const presets = <String, ({String resolution, int fps, String codec, String hint})>{
+    'TEXTO NÍTIDO': (resolution: 'Auto', fps: 15, codec: 'H264', hint: 'Planillas, PDF, presentaciones. Máxima definición por cuadro.'),
+    'EQUILIBRADO': (resolution: 'Auto', fps: 30, codec: 'H264', hint: 'Uso general.'),
+    'FLUIDO': (resolution: '720p', fps: 24, codec: 'H264', hint: 'Wi-Fi flojo o PC lenta: menos datos, sin cortes.'),
+  };
+
+  String? get activePreset {
+    for (final e in presets.entries) {
+      if (e.value.resolution == resolution && e.value.fps == fps && e.value.codec == codec) return e.key;
+    }
+    return null;
+  }
 
   MirroringSettings({
     this.brightness = 1.0,
@@ -29,7 +47,7 @@ class MirroringSettings {
     this.isAntiScreensaverEnabled = true,
     this.resolution = 'Auto',
     this.fps = 30,
-    this.codec = 'auto',
+    this.codec = 'H264',
   });
 
   MirroringSettings copyWith({
@@ -88,7 +106,7 @@ class MirroringSettings {
       isAntiScreensaverEnabled: map['isAntiScreensaverEnabled'] ?? true,
       resolution: map['resolution'] ?? 'Auto',
       fps: (map['fps'] ?? 30).toInt(),
-      codec: map['codec'] ?? 'auto',
+      codec: map['codec'] ?? 'H264',
     );
   }
 
