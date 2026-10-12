@@ -1,11 +1,12 @@
 import 'dart:async';
 import 'dart:io' show Platform;
-import 'dart:ui';
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'dart:ui' show ImageFilter;
+import 'package:flutter/foundation.dart' show kIsWeb, debugPrint;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:window_manager/window_manager.dart';
 import '../../core/mirroring_manager.dart';
 import '../widgets/source_picker_dialog.dart';
 import '../widgets/mirroring_settings_panel.dart';
@@ -321,6 +322,110 @@ class _ProjectorModePageState extends ConsumerState<ProjectorModePage> {
     );
   }
 
+  bool get _isDesktop => !kIsWeb && (Platform.isWindows || Platform.isMacOS || Platform.isLinux);
+
+  Future<void> _minimize() async {
+    try {
+      await windowManager.minimize();
+    } catch (e) {
+      debugPrint('No se pudo minimizar: $e');
+    }
+  }
+
+  Widget _buildLivePanel(MirroringState state) {
+    final peer = state.receiverPeer;
+    final stats = state.stats;
+    return Container(
+      constraints: const BoxConstraints(maxWidth: 520),
+      padding: const EdgeInsets.all(28),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Color(0xFF2E1065), Color(0xFF0F0716)],
+        ),
+        borderRadius: BorderRadius.circular(28),
+        border: Border.all(color: neonPink.withValues(alpha: 0.4)),
+        boxShadow: [BoxShadow(color: neonPink.withValues(alpha: 0.15), blurRadius: 30)],
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Image.asset('assets/logo.png', height: 70),
+          const SizedBox(height: 18),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 10,
+                height: 10,
+                decoration: const BoxDecoration(
+                  color: Colors.greenAccent,
+                  shape: BoxShape.circle,
+                  boxShadow: [BoxShadow(color: Colors.greenAccent, blurRadius: 8)],
+                ),
+              ),
+              const SizedBox(width: 10),
+              Text(
+                'TRANSMITIENDO TU PANTALLA',
+                style: GoogleFonts.orbitron(color: Colors.white, fontSize: 15, fontWeight: FontWeight.bold, letterSpacing: 2),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Text(
+            peer != null
+                ? 'Hacia ${peer.name}${peer.screenLabel.isNotEmpty ? ' (${peer.screenLabel})' : ''} • v${peer.version}'
+                : 'Hacia ${widget.receiverIp ?? 'el receptor'}',
+            style: const TextStyle(color: Colors.white70, fontSize: 12),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 18),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            decoration: BoxDecoration(
+              color: Colors.black.withValues(alpha: 0.4),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: electricCyan.withValues(alpha: 0.4)),
+            ),
+            child: Text(
+              stats?.summary ?? 'Negociando con el receptor…',
+              style: GoogleFonts.orbitron(color: electricCyan, fontSize: 10, fontWeight: FontWeight.bold),
+              textAlign: TextAlign.center,
+            ),
+          ),
+          const SizedBox(height: 18),
+          const Text(
+            'Lo que ves en el proyector es exactamente tu pantalla. '
+            'No se muestra acá para evitar el "espejo infinito" y ahorrar procesador.',
+            style: TextStyle(color: Colors.white38, fontSize: 11),
+            textAlign: TextAlign.center,
+          ),
+          if (_isDesktop) ...[
+            const SizedBox(height: 18),
+            ElevatedButton.icon(
+              onPressed: _minimize,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: neonPink,
+                foregroundColor: Colors.black,
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              ),
+              icon: const Icon(Icons.minimize, size: 18),
+              label: const Text('MINIMIZAR Y SEGUIR TRABAJANDO', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+            ),
+            const SizedBox(height: 6),
+            const Text(
+              'La transmisión sigue en segundo plano. Volvé desde la barra de tareas para detenerla o cambiar ajustes.',
+              style: TextStyle(color: Colors.white30, fontSize: 10),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
   Widget _buildMirroringContent(MirroringState state) {
     switch (state.status) {
       case MirroringStatus.idle:
@@ -349,10 +454,17 @@ class _ProjectorModePageState extends ConsumerState<ProjectorModePage> {
           ],
         );
       case MirroringStatus.mirroring:
-        return RTCVideoView(
-          state.localRenderer!,
-          objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitContain,
-        );
+        // Al transmitir la pantalla entera NO mostramos la vista previa: esta
+        // ventana está dentro de esa pantalla y se vería el "espejo infinito".
+        // Además, dibujar ese video acá consume CPU que la codificación necesita.
+        final isWindowCapture = state.lastSource != null && !state.lastSource!.id.contains('screen');
+        if (isWindowCapture) {
+          return RTCVideoView(
+            state.localRenderer!,
+            objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitContain,
+          );
+        }
+        return _buildLivePanel(state);
       case MirroringStatus.error:
         return Column(
           mainAxisSize: MainAxisSize.min,
