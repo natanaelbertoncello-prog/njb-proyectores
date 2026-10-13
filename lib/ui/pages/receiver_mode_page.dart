@@ -1,13 +1,18 @@
 import 'dart:math' as math;
 import 'dart:async';
+import 'dart:io' show Platform;
 import 'dart:ui';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/gestures.dart' show PointerHoverEvent;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:bonsoir/bonsoir.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
+import 'package:webview_flutter/webview_flutter.dart';
+import 'package:webview_flutter_android/webview_flutter_android.dart';
 import '../../core/app_config.dart';
 import '../../core/app_version.dart';
 import '../../services/local_network.dart';
@@ -38,6 +43,18 @@ class _ReceiverModePageState extends ConsumerState<ReceiverModePage> {
   // Guardián anti-screensaver (nativo en Android).
   ScreenGuardianStatus _guardian = const ScreenGuardianStatus();
   Timer? _guardianRefresh;
+
+  // Navegador integrado ("proyectar una página web").
+  WebViewController? _web;
+  String? _webUrl;
+  bool _webLoading = false;
+  Widget? _webFullscreen;
+  void Function()? _webFullscreenHide;
+
+  static const _desktopUa =
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
+  static const _mobileUa =
+      'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36';
 
   // Estadísticas reales de la conexión (WebRTC getStats).
   double _currentBitrateMbps = 0.0;
@@ -198,8 +215,131 @@ class _ReceiverModePageState extends ConsumerState<ReceiverModePage> {
   // Servidor
   // ---------------------------------------------------------------------------
 
+  // ---------------------------------------------------------------------------
+  // Navegador integrado
+  // ---------------------------------------------------------------------------
+
+  bool get _webSupported => !kIsWeb && Platform.isAndroid;
+
+  WebViewController _createWebController() {
+    final controller = WebViewController()
+      ..setJavaScriptMode(JavaScriptMode.unrestricted)
+      ..setBackgroundColor(Colors.black)
+      ..setNavigationDelegate(NavigationDelegate(
+        onPageStarted: (_) {
+          if (mounted) setState(() => _webLoading = true);
+        },
+        onPageFinished: (_) {
+          if (mounted) setState(() => _webLoading = false);
+        },
+        onWebResourceError: (e) => debugPrint('WebView: ${e.description}'),
+      ));
+
+    final platform = controller.platform;
+    if (platform is AndroidWebViewController) {
+      platform.setMediaPlaybackRequiresUserGesture(false);
+      platform.setCustomWidgetCallbacks(
+        onShowCustomWidget: (widget, onHidden) {
+          if (!mounted) return;
+          setState(() {
+            _webFullscreen = widget;
+            _webFullscreenHide = onHidden;
+          });
+        },
+        onHideCustomWidget: () {
+          if (!mounted) return;
+          setState(() {
+            _webFullscreen = null;
+            _webFullscreenHide = null;
+          });
+        },
+      );
+    }
+    return controller;
+  }
+
+  Future<void> _onWebCommand(Map<String, dynamic> cmd) async {
+    final action = cmd['cmd']?.toString();
+    debugPrint('Web: $cmd');
+
+    if (action == 'open') {
+      final url = cmd['url']?.toString();
+      if (url == null || url.isEmpty) return;
+      if (!_webSupported) {
+        // Windows/Linux como receptor: abrimos el navegador del sistema.
+        try {
+          await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+        } catch (e) {
+          debugPrint('No se pudo abrir $url: $e');
+        }
+        return;
+      }
+      _web ??= _createWebController();
+      await _web!.setUserAgent(cmd['desktop'] == false ? _mobileUa : _desktopUa);
+      await _web!.loadRequest(Uri.parse(url));
+      if (mounted) {
+        setState(() {
+          _webUrl = url;
+          _webLoading = true;
+          _showControls = false;
+        });
+      }
+      return;
+    }
+
+    final web = _web;
+    if (web == null || _webUrl == null) return;
+    try {
+      switch (action) {
+        case 'scroll':
+          await web.scrollBy(0, (cmd['dy'] as num?)?.toInt() ?? 300);
+        case 'top':
+          await web.runJavaScript('window.scrollTo({top:0,behavior:"smooth"})');
+        case 'back':
+          if (await web.canGoBack()) await web.goBack();
+        case 'forward':
+          if (await web.canGoForward()) await web.goForward();
+        case 'reload':
+          await web.reload();
+        case 'zoom':
+          final factor = (cmd['factor'] as num?)?.toDouble() ?? 1.0;
+          await web.runJavaScript('document.body.style.zoom="$factor"');
+        case 'playpause':
+          await web.runJavaScript(
+            '(function(){var v=document.querySelector("video");if(v){if(v.paused){v.play();}else{v.pause();}}})()',
+          );
+        case 'fullscreen':
+          await web.runJavaScript(
+            '(function(){var b=document.querySelector(".ytp-fullscreen-button");if(b){b.click();return;}'
+            'var v=document.querySelector("video");if(v&&v.requestFullscreen){v.requestFullscreen();}})()',
+          );
+        case 'close':
+          _closeWeb();
+      }
+    } catch (e) {
+      debugPrint('Orden web $action falló: $e');
+    }
+  }
+
+  void _closeWeb() {
+    _webFullscreenHide?.call();
+    _web?.loadRequest(Uri.parse('about:blank'));
+    if (mounted) {
+      setState(() {
+        _webUrl = null;
+        _webFullscreen = null;
+        _webFullscreenHide = null;
+        _showControls = true;
+      });
+      _startHideTimer();
+    }
+  }
+
   Future<void> _initialize() async {
     await _remoteRenderer.initialize();
+    _remoteRenderer.onResize = () {
+      if (mounted) setState(() {});
+    };
     await CurrentVersion.get();
 
     _localIp = await LocalNetwork.primaryIp();
@@ -209,12 +349,15 @@ class _ReceiverModePageState extends ConsumerState<ReceiverModePage> {
       if (mounted) setState(() => _senderPeer = peer);
     };
     signaling.onDisconnected = _onSenderLost;
+    signaling.onWebCommand = _onWebCommand;
     _signalingService = signaling;
 
     try {
       await signaling.startServer(
         onRemoteStream: (stream) {
           if (!mounted) return;
+          // Llega video: si había una página web abierta, la cerramos.
+          if (_webUrl != null) _closeWeb();
           setState(() {
             _remoteRenderer.srcObject = stream;
             _isConnected = true;
@@ -285,6 +428,7 @@ class _ReceiverModePageState extends ConsumerState<ReceiverModePage> {
     } catch (_) {}
     _remoteRenderer.srcObject = null;
     _remoteRenderer.dispose();
+    _webFullscreenHide?.call();
     _signalingService?.dispose();
     _broadcast?.stop();
     super.dispose();
@@ -308,6 +452,19 @@ class _ReceiverModePageState extends ConsumerState<ReceiverModePage> {
               Center(
                 child: _isConnected ? _buildFilteredVideo() : _buildWaitingUI(),
               ),
+
+              // Navegador integrado, por encima del video o de la espera.
+              if (_webUrl != null && _web != null)
+                Positioned.fill(child: WebViewWidget(controller: _web!)),
+              if (_webUrl != null && _webLoading)
+                const Positioned(
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  child: LinearProgressIndicator(minHeight: 3, color: neonPink, backgroundColor: Colors.transparent),
+                ),
+              // Video en pantalla completa pedido por la página (YouTube, etc.)
+              if (_webFullscreen != null) Positioned.fill(child: _webFullscreen!),
 
               // Aviso de actualización (siempre visible, aunque el HUD esté oculto).
               const Positioned(
@@ -338,8 +495,9 @@ class _ReceiverModePageState extends ConsumerState<ReceiverModePage> {
                                 border: Border.all(color: Colors.white24),
                               ),
                               child: IconButton(
-                                icon: const Icon(Icons.close, color: Colors.white),
-                                onPressed: () => Navigator.pop(context),
+                                icon: Icon(_webUrl != null ? Icons.web_asset_off : Icons.close, color: Colors.white),
+                                tooltip: _webUrl != null ? 'Cerrar página web' : 'Salir del modo receptor',
+                                onPressed: () => _webUrl != null ? _closeWeb() : Navigator.pop(context),
                               ),
                             ),
                           ),
@@ -499,22 +657,53 @@ class _ReceiverModePageState extends ConsumerState<ReceiverModePage> {
         _settings.hue == 0.0 &&
         _settings.exposure == 0.0;
 
-    final video = RTCVideoView(
-      _remoteRenderer,
-      objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitContain,
-      mirror: false,
-      filterQuality: FilterQuality.high,
-    );
+    final Widget video;
+    switch (_settings.fitMode) {
+      case 'cover':
+        video = RTCVideoView(
+          _remoteRenderer,
+          objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
+          mirror: false,
+          filterQuality: FilterQuality.high,
+        );
+      case 'stretch':
+        final vw = _remoteRenderer.videoWidth.toDouble();
+        final vh = _remoteRenderer.videoHeight.toDouble();
+        video = vw > 0 && vh > 0
+            ? SizedBox.expand(
+                child: FittedBox(
+                  fit: BoxFit.fill,
+                  child: SizedBox(
+                    width: vw,
+                    height: vh,
+                    child: RTCVideoView(
+                      _remoteRenderer,
+                      objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitContain,
+                      mirror: false,
+                      filterQuality: FilterQuality.high,
+                    ),
+                  ),
+                ),
+              )
+            : RTCVideoView(_remoteRenderer, mirror: false, filterQuality: FilterQuality.high);
+      default:
+        video = RTCVideoView(
+          _remoteRenderer,
+          objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitContain,
+          mirror: false,
+          filterQuality: FilterQuality.high,
+        );
+    }
 
     // Con los ajustes en neutro evitamos cuatro pasadas de filtro de color:
     // en proyectores con GPU débil se nota en la fluidez.
     if (isNeutral) {
-      return Container(color: Colors.black, child: Center(child: video));
+      return Container(color: Colors.black, child: SizedBox.expand(child: video));
     }
 
     return Container(
       color: Colors.black,
-      child: Center(
+      child: SizedBox.expand(
         child: ColorFiltered(
           colorFilter: ColorFilter.matrix(hueMatrix),
           child: ColorFiltered(

@@ -88,6 +88,42 @@ class MirroringSettingsPanel extends ConsumerWidget {
             ),
             
             const Divider(color: Colors.white10, height: 36),
+            _buildSectionTitle('AJUSTE DE IMAGEN EN EL PROYECTOR'),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: MirroringSettings.fitModes.entries.map((e) {
+                final isSelected = e.key == settings.fitMode;
+                return ChoiceChip(
+                  label: Text(e.value.label, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                  avatar: Icon(
+                    e.key == 'contain' ? Icons.fit_screen : (e.key == 'cover' ? Icons.crop : Icons.open_in_full),
+                    size: 14,
+                    color: isSelected ? Colors.black : Colors.white54,
+                  ),
+                  selected: isSelected,
+                  selectedColor: goldAccent,
+                  backgroundColor: Colors.white.withValues(alpha: 0.06),
+                  labelStyle: TextStyle(color: isSelected ? Colors.black : Colors.white70),
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    side: BorderSide(color: isSelected ? goldAccent : Colors.transparent),
+                  ),
+                  onSelected: (_) => ref.read(mirroringProvider.notifier).updateSettings(
+                        ref.read(mirroringProvider).settings.copyWith(fitMode: e.key),
+                      ),
+                );
+              }).toList(),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              MirroringSettings.fitModes[settings.fitMode]?.hint ?? '',
+              style: const TextStyle(color: Colors.white38, fontSize: 10),
+            ),
+
+            const Divider(color: Colors.white10, height: 36),
             _buildSectionTitle('CALIBRACIÓN EXTREMA DE LENTE Y COLOR'),
             const SizedBox(height: 12),
 

@@ -11,6 +11,7 @@ import '../widgets/compact_device_button.dart';
 import '../widgets/update_banner.dart';
 import 'projector_mode_page.dart';
 import 'receiver_mode_page.dart';
+import 'web_cast_page.dart';
 
 class HomePage extends ConsumerWidget {
   const HomePage({super.key});
@@ -462,6 +463,27 @@ class HomePage extends ConsumerWidget {
                     ],
                   ),
                 ),
+                if (device.isNjb) ...[
+                  Tooltip(
+                    message: 'Proyectar una página web (el proyector la abre solo)',
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(12),
+                      onTap: () => Navigator.of(context).push(
+                        MaterialPageRoute(builder: (_) => WebCastPage(device: device)),
+                      ),
+                      child: Container(
+                        padding: const EdgeInsets.all(9),
+                        decoration: BoxDecoration(
+                          color: electricCyan.withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: electricCyan.withValues(alpha: 0.5)),
+                        ),
+                        child: const Icon(Icons.language, color: electricCyan, size: 18),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                ],
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                   decoration: BoxDecoration(

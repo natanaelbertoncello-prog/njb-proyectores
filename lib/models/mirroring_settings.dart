@@ -19,8 +19,17 @@ class MirroringSettings {
   /// proyectores decodifican por software y se traban.
   final String codec;
 
+  /// Cómo se acomoda el video en la pantalla del proyector:
+  /// 'contain' (entero, con bordes), 'cover' (llena recortando) o 'stretch' (estira).
+  final String fitMode;
+
   static const resolutions = ['Auto', '480p', '720p', '1080p', '2K', '4K'];
   static const codecs = ['auto', 'VP8', 'VP9', 'H264', 'AV1'];
+  static const fitModes = <String, ({String label, String hint})>{
+    'contain': (label: 'AJUSTAR', hint: 'Se ve todo, con bordes negros si la forma no coincide (celular vertical).'),
+    'cover': (label: 'RELLENAR', hint: 'Ocupa toda la pantalla recortando los bordes. Sin deformar.'),
+    'stretch': (label: 'ESTIRAR', hint: 'Ocupa toda la pantalla deformando la imagen. Útil para texto grande.'),
+  };
 
   /// Perfiles de un toque.
   static const presets = <String, ({String resolution, int fps, String codec, String hint})>{
@@ -48,6 +57,7 @@ class MirroringSettings {
     this.resolution = 'Auto',
     this.fps = 30,
     this.codec = 'H264',
+    this.fitMode = 'contain',
   });
 
   MirroringSettings copyWith({
@@ -62,6 +72,7 @@ class MirroringSettings {
     String? resolution,
     int? fps,
     String? codec,
+    String? fitMode,
   }) {
     return MirroringSettings(
       brightness: brightness ?? this.brightness,
@@ -75,6 +86,7 @@ class MirroringSettings {
       resolution: resolution ?? this.resolution,
       fps: fps ?? this.fps,
       codec: codec ?? this.codec,
+      fitMode: fitMode ?? this.fitMode,
     );
   }
 
@@ -91,6 +103,7 @@ class MirroringSettings {
       'resolution': resolution,
       'fps': fps,
       'codec': codec,
+      'fitMode': fitMode,
     };
   }
 
@@ -107,6 +120,7 @@ class MirroringSettings {
       resolution: map['resolution'] ?? 'Auto',
       fps: (map['fps'] ?? 30).toInt(),
       codec: map['codec'] ?? 'H264',
+      fitMode: map['fitMode'] ?? 'contain',
     );
   }
 

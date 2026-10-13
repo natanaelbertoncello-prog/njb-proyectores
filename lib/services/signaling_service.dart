@@ -17,6 +17,9 @@ typedef OnSettingsUpdated = void Function(MirroringSettings settings);
 typedef OnDisconnected = void Function(String reason);
 typedef OnPeerInfo = void Function(PeerInfo info);
 
+/// Orden para el navegador integrado del receptor (`{'cmd': 'open', 'url': ...}`).
+typedef OnWebCommand = void Function(Map<String, dynamic> command);
+
 /// Datos que cada extremo envía al conectarse (`hello`).
 class PeerInfo {
   final String name;
@@ -74,6 +77,9 @@ class SignalingService {
 
   /// Se dispara al recibir el `hello` del otro extremo.
   OnPeerInfo? onPeerInfo;
+
+  /// Receptor: órdenes para el navegador integrado.
+  OnWebCommand? onWebCommand;
 
   PeerInfo? remotePeer;
 
@@ -146,7 +152,11 @@ class SignalingService {
     OnRemoteStream onRemoteStream,
     OnSettingsUpdated onSettings,
   ) async {
-    // Si ya había un emisor, lo reemplazamos limpiamente por el nuevo.
+    // Si ya había un emisor, lo reemplazamos limpiamente por el nuevo y
+    // avisamos a la UI para que no quede un cuadro congelado.
+    if (_channel != null || _pc != null) {
+      _handleDisconnect('Se conectó otro emisor');
+    }
     await _closePeer();
     await _closeChannel();
 
@@ -188,6 +198,8 @@ class SignalingService {
           await _addCandidate(data['candidate']);
         case 'settings_update':
           onSettings(MirroringSettings.fromMap(Map<String, dynamic>.from(data['settings'])));
+        case 'web':
+          onWebCommand?.call(data);
         case 'bye':
           _handleDisconnect('El emisor detuvo la transmisión');
       }
@@ -262,6 +274,35 @@ class SignalingService {
     } catch (e) {
       debugPrint('Error procesando mensaje de señalización: $e');
     }
+  }
+
+  /// Sesión de sólo control (sin video): para manejar el navegador del receptor.
+  Future<void> connectControl(String receiverIp) async {
+    await _closePeer();
+    await _closeChannel();
+
+    final uri = Uri.parse('ws://$receiverIp:${AppConfig.signalingPort}/ws');
+    _channel = WebSocketChannel.connect(uri);
+    try {
+      await _channel!.ready.timeout(const Duration(seconds: 6));
+    } on TimeoutException {
+      throw Exception('El receptor $receiverIp no respondió. ¿Está abierto el modo receptor?');
+    } catch (e) {
+      throw Exception('No se pudo conectar con $receiverIp: $e');
+    }
+
+    _send({'type': 'hello', 'peer': (await _localPeer()).toMap()});
+    _channelSub = _channel!.stream.listen(
+      _onClientMessage,
+      onError: (e) => _handleDisconnect('Error de conexión: $e'),
+      onDone: () => _handleDisconnect('El receptor cerró la conexión'),
+      cancelOnError: true,
+    );
+  }
+
+  /// Emisor: manda una orden al navegador integrado del receptor.
+  void sendWeb(String cmd, [Map<String, dynamic> args = const {}]) {
+    _send({'type': 'web', 'cmd': cmd, ...args});
   }
 
   // ---------------------------------------------------------------------------
