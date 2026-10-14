@@ -4,6 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../core/app_version.dart';
 import '../../services/discovery_service.dart';
 import '../../services/iot_service.dart';
+import '../../services/settings_store.dart';
 import '../../core/mirroring_manager.dart';
 import '../../models/discovered_device.dart';
 import '../widgets/mirroring_settings_panel.dart';
@@ -85,6 +86,8 @@ class HomePage extends ConsumerWidget {
 
                   // Receiver Mode Card
                   _buildReceiverModeCard(context),
+                  const SizedBox(height: 10),
+                  const _AutoReceiverSwitch(),
 
                   // Smart Room & Projector Controls (IoT)
                   if (smartDevices.isNotEmpty) ...[
@@ -659,6 +662,53 @@ class HomePage extends ConsumerWidget {
             child: const Text('CONECTAR', style: TextStyle(fontWeight: FontWeight.bold)),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// "Este equipo es el proyector": al abrir la app (y al encender el equipo,
+/// en Android) entra directo al modo receptor.
+class _AutoReceiverSwitch extends StatefulWidget {
+  const _AutoReceiverSwitch();
+
+  @override
+  State<_AutoReceiverSwitch> createState() => _AutoReceiverSwitchState();
+}
+
+class _AutoReceiverSwitchState extends State<_AutoReceiverSwitch> {
+  bool _value = false;
+
+  @override
+  void initState() {
+    super.initState();
+    SettingsStore.getAutoReceiver().then((v) {
+      if (mounted) setState(() => _value = v);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.03),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+      ),
+      child: SwitchListTile(
+        value: _value,
+        activeThumbColor: HomePage.neonPink,
+        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
+        secondary: const Icon(Icons.power_settings_new, color: Colors.white54, size: 20),
+        title: const Text('ESTE EQUIPO ES EL PROYECTOR', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 11, letterSpacing: 0.5)),
+        subtitle: const Text(
+          'Abre el modo receptor solo al iniciar la app y al encender el equipo. Activalo únicamente en el proyector.',
+          style: TextStyle(color: Colors.white38, fontSize: 10),
+        ),
+        onChanged: (v) {
+          setState(() => _value = v);
+          SettingsStore.setAutoReceiver(v);
+        },
       ),
     );
   }

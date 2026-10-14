@@ -6,6 +6,8 @@ import 'dart:ui';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/gestures.dart' show PointerHoverEvent;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show MethodChannel;
+import 'package:window_manager/window_manager.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -88,6 +90,8 @@ class _ReceiverModePageState extends ConsumerState<ReceiverModePage> {
   static const neonPink = Color(0xFFD946EF);
   static const goldAccent = Color(0xFFF59E0B);
 
+  bool get _isDesktop => !kIsWeb && (Platform.isWindows || Platform.isLinux || Platform.isMacOS);
+
   @override
   void initState() {
     super.initState();
@@ -95,6 +99,10 @@ class _ReceiverModePageState extends ConsumerState<ReceiverModePage> {
     _startStatsTimer();
     _startHideTimer();
     _startKeepAlive();
+    if (_isDesktop) {
+      // Una PC como receptor: pantalla completa, sin barra de título.
+      windowManager.setFullScreen(true).catchError((_) {});
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -329,6 +337,19 @@ class _ReceiverModePageState extends ConsumerState<ReceiverModePage> {
         case 'playpause':
           await web.runJavaScript(
             '(function(){var v=document.querySelector("video");if(v){if(v.paused){v.play();}else{v.pause();}}})()',
+          );
+        case 'volume':
+          final direction = cmd['direction']?.toString() ?? 'up';
+          // Volumen del sistema (Android) + volumen del video de la página.
+          if (!kIsWeb && Platform.isAndroid) {
+            try {
+              await const MethodChannel(AppConfig.serviceChannel).invokeMethod('adjustVolume', {'direction': direction});
+            } catch (_) {}
+          }
+          await web.runJavaScript(
+            '(function(d){var v=document.querySelector("video");if(!v)return;'
+            'if(d==="mute"){v.muted=!v.muted;return;}'
+            'v.muted=false;v.volume=Math.max(0,Math.min(1,v.volume+(d==="up"?0.1:-0.1)));})(${jsonEncode(direction)})',
           );
         case 'fullscreen':
           await web.runJavaScript(
@@ -580,6 +601,7 @@ class _ReceiverModePageState extends ConsumerState<ReceiverModePage> {
     _dial?.dispose();
     _signalingService?.dispose();
     _broadcast?.stop();
+    if (_isDesktop) windowManager.setFullScreen(false).catchError((_) {});
     super.dispose();
   }
 

@@ -35,6 +35,24 @@ dependen del soporte DRM del proyector). El proyector recuerda las sesiones inic
 En Android también funciona **"Compartir → NJB Proyectores"** desde Chrome, YouTube o
 cualquier app: el link se abre directo en el proyector.
 
+### Botón "Transmitir" de YouTube
+
+El receptor implementa DIAL, el protocolo abierto de YouTube: el proyector aparece en el
+botón Transmitir de la app de YouTube del celular. Netflix, Disney+ y Prime Video usan
+Google Cast (propietario, con certificados de hardware y DRM) y no se puede emular.
+
+### "Este equipo es el proyector"
+
+En la pantalla principal, debajo de "Usar como receptor", ese interruptor hace que la app
+entre sola en modo receptor al abrirse y, en Android, al encender el equipo o tras una
+actualización. Activarlo sólo en el proyector.
+
+### Audio
+
+Al espejar la pantalla **no viaja el sonido del sistema** (limitación de la librería
+WebRTC, en PC y en celular). Para ver videos con sonido en el proyector usar "Proyectar
+página web" o el botón Transmitir de YouTube: ahí el audio sale por el proyector.
+
 ---
 
 ## 2. Instalar en el proyector por primera vez

@@ -225,7 +225,12 @@ class MirroringSettingsPanel extends ConsumerWidget {
               ),
               child: SwitchListTile(
                 title: const Text('TRANSMITIR AUDIO AL PROYECTOR', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12)),
-                subtitle: const Text('Desactiva si prefieres reproducir el sonido en parlantes o audífonos locales', style: TextStyle(color: Colors.white54, fontSize: 10)),
+                subtitle: const Text(
+                  'Limitación de la librería de video: al espejar la pantalla NO se captura el sonido del sistema '
+                  '(ni en PC ni en celular). Para ver videos con sonido en el proyector usá "Proyectar página web" '
+                  'o el botón Transmitir de YouTube: ahí el audio sale por el proyector.',
+                  style: TextStyle(color: Colors.white54, fontSize: 10),
+                ),
                 secondary: const Icon(Icons.volume_up, color: neonPink, size: 22),
                 contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
                 value: settings.isAudioEnabled,

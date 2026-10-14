@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 import '../services/discovery_service.dart';
+import '../services/settings_store.dart';
 import '../services/signaling_service.dart';
 import '../models/mirroring_settings.dart';
 import 'app_config.dart';
@@ -123,7 +124,17 @@ final mirroringProvider = StateNotifierProvider<MirroringManager, MirroringState
 
 /// Lado emisor: captura la pantalla y la envía al receptor elegido.
 class MirroringManager extends StateNotifier<MirroringState> {
-  MirroringManager() : super(MirroringState());
+  MirroringManager() : super(MirroringState()) {
+    _restore();
+  }
+
+  Future<void> _restore() async {
+    final saved = await SettingsStore.loadSettings();
+    final lastIp = await SettingsStore.getLastReceiverIp();
+    if (state.status == MirroringStatus.idle) {
+      state = state.copyWith(settings: saved, lastReceiverIp: lastIp);
+    }
+  }
 
   static const _serviceChannel = MethodChannel(AppConfig.serviceChannel);
   static const _maxReconnectAttempts = 5;
@@ -157,6 +168,7 @@ class MirroringManager extends StateNotifier<MirroringState> {
     final targetIp = receiverIp ?? state.lastReceiverIp;
     final session = ++_session;
     _stopping = false;
+    if (targetIp != null && targetIp.isNotEmpty) SettingsStore.setLastReceiverIp(targetIp);
 
     state = state.copyWith(
       status: MirroringStatus.connecting,
@@ -382,6 +394,7 @@ class MirroringManager extends StateNotifier<MirroringState> {
   Future<void> updateSettings(MirroringSettings newSettings) async {
     final oldSettings = state.settings;
     state = state.copyWith(settings: newSettings, statusMessage: state.statusMessage);
+    SettingsStore.saveSettings(newSettings);
 
     final stream = _localStream;
     final live = stream != null && state.status == MirroringStatus.mirroring;

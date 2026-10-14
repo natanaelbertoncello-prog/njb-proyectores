@@ -7,6 +7,7 @@ import 'package:bonsoir/bonsoir.dart';
 import '../core/app_config.dart';
 import '../models/discovered_device.dart';
 import 'local_network.dart';
+import 'settings_store.dart';
 
 final discoveryServiceProvider = StateNotifierProvider<DiscoveryService, List<DiscoveredDevice>>((ref) {
   return DiscoveryService();
@@ -67,6 +68,14 @@ class DiscoveryService extends StateNotifier<List<DiscoveredDevice>> {
     _selfIps = (await LocalNetwork.allIpv4()).toSet();
     unawaited(_scanSubnet());
     unawaited(_startMdns());
+    unawaited(_probeLastReceiver());
+  }
+
+  /// El último proyector usado se consulta primero: aparece al instante.
+  Future<void> _probeLastReceiver() async {
+    final ip = await SettingsStore.getLastReceiverIp();
+    if (ip == null || _selfIps.contains(ip) || _disposed) return;
+    await _probeAndRegister(ip);
   }
 
   Future<void> _clearScanners() async {

@@ -3,6 +3,7 @@ package com.njb.proyectores
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
+import android.media.AudioManager
 import android.net.wifi.WifiManager
 import android.media.projection.MediaProjectionManager
 import android.os.Build
@@ -79,6 +80,24 @@ class MainActivity : FlutterActivity() {
                     } catch (_: Throwable) {
                     }
                     result.success(null)
+                }
+                "adjustVolume" -> {
+                    // Volumen del sistema (lado receptor): +1 / -1 / silenciar.
+                    val direction = call.argument<String>("direction") ?: "up"
+                    try {
+                        val audio = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+                        val dir = when (direction) {
+                            "down" -> AudioManager.ADJUST_LOWER
+                            "mute" -> AudioManager.ADJUST_TOGGLE_MUTE
+                            else -> AudioManager.ADJUST_RAISE
+                        }
+                        audio.adjustStreamVolume(AudioManager.STREAM_MUSIC, dir, AudioManager.FLAG_SHOW_UI)
+                        val max = audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+                        val cur = audio.getStreamVolume(AudioManager.STREAM_MUSIC)
+                        result.success(if (max > 0) cur * 100 / max else 0)
+                    } catch (t: Throwable) {
+                        result.success(-1)
+                    }
                 }
                 "multicastLock" -> {
                     // Necesario para recibir SSDP (botón "Transmitir" de YouTube).

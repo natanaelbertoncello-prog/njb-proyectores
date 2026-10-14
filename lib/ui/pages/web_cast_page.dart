@@ -521,6 +521,14 @@ class _WebCastPageState extends State<WebCastPage> {
         ]),
         const SizedBox(height: 8),
         Row(children: [
+          btn(Icons.volume_down, 'VOL −', () => _cmd('volume', {'direction': 'down'})),
+          const SizedBox(width: 8),
+          btn(Icons.volume_up, 'VOL +', () => _cmd('volume', {'direction': 'up'})),
+          const SizedBox(width: 8),
+          btn(Icons.volume_off, 'SILENCIO', () => _cmd('volume', {'direction': 'mute'})),
+        ]),
+        const SizedBox(height: 8),
+        Row(children: [
           btn(Icons.fullscreen, 'VIDEO A PANTALLA COMPLETA', () => _cmd('fullscreen'), color: goldAccent),
           const SizedBox(width: 8),
           btn(Icons.close, 'CERRAR EN EL PROYECTOR', () {

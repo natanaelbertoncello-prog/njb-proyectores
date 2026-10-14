@@ -10,9 +10,11 @@ import 'core/app_config.dart';
 import 'core/app_version.dart';
 import 'models/discovered_device.dart';
 import 'services/discovery_service.dart';
+import 'services/settings_store.dart';
 import 'services/share_service.dart';
 import 'services/update_service.dart';
 import 'ui/pages/home_page.dart';
+import 'ui/pages/receiver_mode_page.dart';
 import 'ui/pages/web_cast_page.dart';
 
 Future<void> main() async {
@@ -93,6 +95,15 @@ class _AppBootstrapState extends ConsumerState<_AppBootstrap> {
     CurrentVersion.get();
     ref.read(updateProvider.notifier).startPeriodicChecks();
     _initShare();
+    _autoReceiver();
+  }
+
+  /// "Este equipo es el proyector": entra directo al modo receptor.
+  Future<void> _autoReceiver() async {
+    if (!await SettingsStore.getAutoReceiver()) return;
+    await Future.delayed(const Duration(milliseconds: 300));
+    if (!mounted) return;
+    Navigator.of(context).push(MaterialPageRoute(builder: (_) => const ReceiverModePage()));
   }
 
   Future<void> _initShare() async {
