@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io' show Platform;
 import 'dart:ui';
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -50,6 +51,11 @@ class _ReceiverModePageState extends ConsumerState<ReceiverModePage> {
   bool _webLoading = false;
   Widget? _webFullscreen;
   void Function()? _webFullscreenHide;
+
+  // Puntero remoto (touchpad del celular) sobre el navegador.
+  Offset _cursor = const Offset(0.5, 0.5); // fracción del tamaño de pantalla
+  bool _cursorVisible = false;
+  Timer? _cursorHide;
 
   static const _desktopUa =
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
@@ -291,8 +297,25 @@ class _ReceiverModePageState extends ConsumerState<ReceiverModePage> {
     if (web == null || _webUrl == null) return;
     try {
       switch (action) {
+        case 'cursor':
+          _showCursor(Offset(_frac(cmd['fx']), _frac(cmd['fy'])));
+        case 'click':
+        case 'dblclick':
+          final at = Offset(_frac(cmd['fx']), _frac(cmd['fy']));
+          _showCursor(at);
+          await web.runJavaScript(_jsClick(at.dx, at.dy, double_: action == 'dblclick'));
+        case 'type':
+          await web.runJavaScript(_jsType(cmd['text']?.toString() ?? ''));
+        case 'key':
+          await web.runJavaScript(_jsKey(cmd['key']?.toString() ?? ''));
         case 'scroll':
-          await web.scrollBy(0, (cmd['dy'] as num?)?.toInt() ?? 300);
+          final dy = (cmd['dy'] as num?)?.toInt() ?? 300;
+          if (cmd['fx'] != null && cmd['fy'] != null) {
+            // Desplaza el contenedor que está bajo el puntero (listas internas, chats…).
+            await web.runJavaScript(_jsScrollAt(_frac(cmd['fx']), _frac(cmd['fy']), dy));
+          } else {
+            await web.scrollBy(0, dy);
+          }
         case 'top':
           await web.runJavaScript('window.scrollTo({top:0,behavior:"smooth"})');
         case 'back':
@@ -321,7 +344,87 @@ class _ReceiverModePageState extends ConsumerState<ReceiverModePage> {
     }
   }
 
+  static double _frac(dynamic v) => ((v as num?)?.toDouble() ?? 0.5).clamp(0.0, 1.0);
+
+  void _showCursor(Offset at) {
+    _cursorHide?.cancel();
+    _cursorHide = Timer(const Duration(seconds: 5), () {
+      if (mounted) setState(() => _cursorVisible = false);
+    });
+    if (mounted) {
+      setState(() {
+        _cursor = at;
+        _cursorVisible = true;
+      });
+    }
+  }
+
+  // --- JavaScript inyectado en la página -------------------------------------
+  // Las coordenadas llegan como fracción (0..1) de la pantalla; la página las
+  // convierte a sus propios píxeles CSS, así no importa el zoom ni la escala.
+
+  static String _jsClick(double fx, double fy, {bool double_ = false}) => '''
+(function(fx,fy,dbl){
+  var x=fx*window.innerWidth, y=fy*window.innerHeight;
+  var el=document.elementFromPoint(x,y); if(!el) return;
+  var o={bubbles:true,cancelable:true,clientX:x,clientY:y,screenX:x,screenY:y,view:window,button:0};
+  function fire(t,C){ try{ el.dispatchEvent(new C(t,o)); }catch(e){} }
+  fire('pointerdown',PointerEvent); fire('mousedown',MouseEvent);
+  fire('pointerup',PointerEvent); fire('mouseup',MouseEvent);
+  fire('click',MouseEvent);
+  if(dbl){ fire('dblclick',MouseEvent); }
+  var f=el; while(f && !(f.tagName==='INPUT'||f.tagName==='TEXTAREA'||f.isContentEditable)) f=f.parentElement;
+  if(f && f.focus) f.focus();
+})($fx,$fy,${double_ ? 'true' : 'false'});''';
+
+  static String _jsType(String text) => '''
+(function(t){
+  var el=document.activeElement; if(!el||el===document.body){ return; }
+  if(el.isContentEditable){ document.execCommand('insertText',false,t); return; }
+  var proto=(el.tagName==='TEXTAREA')?HTMLTextAreaElement.prototype:HTMLInputElement.prototype;
+  var d=Object.getOwnPropertyDescriptor(proto,'value');
+  var v=(el.value||'')+t;
+  if(d&&d.set){ d.set.call(el,v); } else { el.value=v; }
+  el.dispatchEvent(new Event('input',{bubbles:true}));
+  el.dispatchEvent(new Event('change',{bubbles:true}));
+})(${jsonEncode(text)});''';
+
+  static String _jsKey(String key) => '''
+(function(k){
+  var el=document.activeElement||document.body;
+  var codes={Enter:13,Backspace:8,Tab:9,Escape:27,ArrowUp:38,ArrowDown:40,ArrowLeft:37,ArrowRight:39,' ':32};
+  var kc=codes[k]||0;
+  var o={key:k,code:k,keyCode:kc,which:kc,bubbles:true,cancelable:true};
+  var down=new KeyboardEvent('keydown',o); el.dispatchEvent(down);
+  el.dispatchEvent(new KeyboardEvent('keypress',o));
+  if(k==='Backspace' && !down.defaultPrevented && (el.tagName==='INPUT'||el.tagName==='TEXTAREA')){
+    var proto=(el.tagName==='TEXTAREA')?HTMLTextAreaElement.prototype:HTMLInputElement.prototype;
+    var d=Object.getOwnPropertyDescriptor(proto,'value'); var v=(el.value||'').slice(0,-1);
+    if(d&&d.set){ d.set.call(el,v); } else { el.value=v; }
+    el.dispatchEvent(new Event('input',{bubbles:true}));
+  }
+  if(k==='Enter' && !down.defaultPrevented && el.form && el.tagName==='INPUT'){
+    if(el.form.requestSubmit){ el.form.requestSubmit(); } else { el.form.submit(); }
+  }
+  if(k===' ' && !down.defaultPrevented){ var v=document.querySelector('video'); if(v){ v.paused?v.play():v.pause(); } }
+  el.dispatchEvent(new KeyboardEvent('keyup',o));
+})(${jsonEncode(key)});''';
+
+  static String _jsScrollAt(double fx, double fy, int dy) => '''
+(function(fx,fy,dy){
+  var x=fx*window.innerWidth, y=fy*window.innerHeight;
+  var el=document.elementFromPoint(x,y);
+  while(el){
+    var s=getComputedStyle(el).overflowY;
+    if((s==='auto'||s==='scroll')&&el.scrollHeight>el.clientHeight+4){ el.scrollBy({top:dy,behavior:'instant'}); return; }
+    el=el.parentElement;
+  }
+  window.scrollBy({top:dy,behavior:'instant'});
+})($fx,$fy,$dy);''';
+
   void _closeWeb() {
+    _cursorHide?.cancel();
+    _cursorVisible = false;
     _webFullscreenHide?.call();
     _web?.loadRequest(Uri.parse('about:blank'));
     if (mounted) {
@@ -422,6 +525,7 @@ class _ReceiverModePageState extends ConsumerState<ReceiverModePage> {
     _guardianRefresh?.cancel();
     _statsTimer?.cancel();
     _hideTimer?.cancel();
+    _cursorHide?.cancel();
     ScreenGuardian.stop();
     try {
       WakelockPlus.disable();
@@ -465,6 +569,24 @@ class _ReceiverModePageState extends ConsumerState<ReceiverModePage> {
                 ),
               // Video en pantalla completa pedido por la página (YouTube, etc.)
               if (_webFullscreen != null) Positioned.fill(child: _webFullscreen!),
+
+              // Puntero del touchpad remoto.
+              if (_webUrl != null && _cursorVisible)
+                Positioned.fill(
+                  child: IgnorePointer(
+                    child: LayoutBuilder(
+                      builder: (context, c) => Stack(
+                        children: [
+                          Positioned(
+                            left: _cursor.dx * c.maxWidth - 4,
+                            top: _cursor.dy * c.maxHeight - 2,
+                            child: const _RemoteCursor(),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
 
               // Aviso de actualización (siempre visible, aunque el HUD esté oculto).
               const Positioned(
@@ -785,4 +907,41 @@ class _ReceiverModePageState extends ConsumerState<ReceiverModePage> {
       ),
     );
   }
+}
+
+/// Flecha de mouse clásica (blanca con borde negro) para el puntero remoto.
+class _RemoteCursor extends StatelessWidget {
+  const _RemoteCursor();
+
+  @override
+  Widget build(BuildContext context) {
+    return CustomPaint(size: const Size(26, 34), painter: _CursorPainter());
+  }
+}
+
+class _CursorPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final path = Path()
+      ..moveTo(0, 0)
+      ..lineTo(0, 24)
+      ..lineTo(6, 19)
+      ..lineTo(10, 30)
+      ..lineTo(14, 28)
+      ..lineTo(10, 18)
+      ..lineTo(18, 18)
+      ..close();
+    canvas.drawShadow(path, Colors.black, 3, false);
+    canvas.drawPath(path, Paint()..color = Colors.white);
+    canvas.drawPath(
+      path,
+      Paint()
+        ..color = Colors.black
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.5,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }

@@ -32,4 +32,5 @@ class AppConfig {
   static const String serviceChannel = 'com.njb.proyectores/service';
   static const String screenGuardianChannel = 'com.njb.proyectores/screen_guardian';
   static const String updaterChannel = 'com.njb.proyectores/updater';
+  static const String shareChannel = 'com.njb.proyectores/share';
 }

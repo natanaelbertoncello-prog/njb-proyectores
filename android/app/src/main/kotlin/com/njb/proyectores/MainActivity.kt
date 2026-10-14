@@ -17,16 +17,42 @@ class MainActivity : FlutterActivity() {
         private const val SERVICE_CHANNEL = "com.njb.proyectores/service"
         private const val GUARDIAN_CHANNEL = "com.njb.proyectores/screen_guardian"
         private const val UPDATER_CHANNEL = "com.njb.proyectores/updater"
+        private const val SHARE_CHANNEL = "com.njb.proyectores/share"
         private const val SCREEN_CAPTURE_REQUEST_CODE = 1001
     }
 
     private var pendingResult: MethodChannel.Result? = null
     private lateinit var guardian: ScreenGuardian
+    private var shareChannel: MethodChannel? = null
+    private var pendingSharedText: String? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         guardian = ScreenGuardian(this)
+        pendingSharedText = extractSharedText(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        val text = extractSharedText(intent) ?: return
+        val channel = shareChannel
+        if (channel != null) {
+            channel.invokeMethod("onSharedText", text)
+        } else {
+            pendingSharedText = text
+        }
+    }
+
+    /** "Compartir con NJB Proyectores" desde Chrome, YouTube, etc. */
+    private fun extractSharedText(intent: Intent?): String? {
+        if (intent == null) return null
+        return when (intent.action) {
+            Intent.ACTION_SEND -> intent.getStringExtra(Intent.EXTRA_TEXT)
+            Intent.ACTION_VIEW -> intent.dataString
+            else -> null
+        }?.takeIf { it.isNotBlank() }
     }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
@@ -66,6 +92,19 @@ class MainActivity : FlutterActivity() {
                 "status" -> result.success(guardian.status())
                 "applySystemSettings" -> result.success(guardian.applySystemSettings())
                 else -> result.notImplemented()
+            }
+        }
+
+        // --- Compartir desde otras apps ---------------------------------------
+        shareChannel = MethodChannel(messenger, SHARE_CHANNEL).also { channel ->
+            channel.setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "getSharedText" -> {
+                        result.success(pendingSharedText)
+                        pendingSharedText = null
+                    }
+                    else -> result.notImplemented()
+                }
             }
         }
 
