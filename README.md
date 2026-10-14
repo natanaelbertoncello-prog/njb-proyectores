@@ -24,6 +24,19 @@ Si el receptor se reinicia, el emisor intenta reconectarse 5 veces antes de avis
 
 ---
 
+### Proyectar una página web sin espejar
+
+En la lista de receptores, el botón con el ícono de mundo abre **"Proyectar página web"**:
+el proyector abre la dirección con su propio navegador (sin captura ni compresión) y desde
+el celular o la PC se lo maneja con touchpad, teclado remoto, scroll, zoom y play/pausa.
+Sirve para YouTube, Google, Drive, Canva, Netflix, Disney+ y Prime Video (estos tres
+dependen del soporte DRM del proyector). El proyector recuerda las sesiones iniciadas.
+
+En Android también funciona **"Compartir → NJB Proyectores"** desde Chrome, YouTube o
+cualquier app: el link se abre directo en el proyector.
+
+---
+
 ## 2. Instalar en el proyector por primera vez
 
 > **Importante:** la app cambió de nombre de paquete (`com.njb.proyectores`) y de firma.
