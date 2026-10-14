@@ -16,6 +16,7 @@ import 'package:webview_flutter/webview_flutter.dart';
 import 'package:webview_flutter_android/webview_flutter_android.dart';
 import '../../core/app_config.dart';
 import '../../core/app_version.dart';
+import '../../services/dial_service.dart';
 import '../../services/local_network.dart';
 import '../../services/screen_guardian.dart';
 import '../../services/signaling_service.dart';
@@ -61,6 +62,13 @@ class _ReceiverModePageState extends ConsumerState<ReceiverModePage> {
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
   static const _mobileUa =
       'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36';
+  // youtube.com/tv sólo acepta navegadores de Smart TV.
+  static const _tvUa =
+      'Mozilla/5.0 (SMART-TV; Linux; Tizen 6.0) AppleWebKit/537.36 (KHTML, like Gecko) 76.0.3809.146/6.0 TV Safari/537.36';
+
+  // Receptor DIAL: botón "Transmitir" de la app de YouTube.
+  DialService? _dial;
+  bool _youtubeCast = false;
 
   // Estadísticas reales de la conexión (WebRTC getStats).
   double _currentBitrateMbps = 0.0;
@@ -280,16 +288,7 @@ class _ReceiverModePageState extends ConsumerState<ReceiverModePage> {
         }
         return;
       }
-      _web ??= _createWebController();
-      await _web!.setUserAgent(cmd['desktop'] == false ? _mobileUa : _desktopUa);
-      await _web!.loadRequest(Uri.parse(url));
-      if (mounted) {
-        setState(() {
-          _webUrl = url;
-          _webLoading = true;
-          _showControls = false;
-        });
-      }
+      await _openInWebView(url, cmd['desktop'] == false ? _mobileUa : _desktopUa);
       return;
     }
 
@@ -422,20 +421,62 @@ class _ReceiverModePageState extends ConsumerState<ReceiverModePage> {
   window.scrollBy({top:dy,behavior:'instant'});
 })($fx,$fy,$dy);''';
 
+  Future<void> _openInWebView(String url, String userAgent, {bool fromYouTubeCast = false}) async {
+    if (!_webSupported) return;
+    _web ??= _createWebController();
+    await _web!.setUserAgent(userAgent);
+    await _web!.loadRequest(Uri.parse(url));
+    if (mounted) {
+      setState(() {
+        _webUrl = url;
+        _webLoading = true;
+        _showControls = false;
+        _youtubeCast = fromYouTubeCast;
+      });
+    }
+  }
+
   void _closeWeb() {
     _cursorHide?.cancel();
     _cursorVisible = false;
     _webFullscreenHide?.call();
     _web?.loadRequest(Uri.parse('about:blank'));
+    if (_youtubeCast) _dial?.markYouTubeStopped();
     if (mounted) {
       setState(() {
         _webUrl = null;
         _webFullscreen = null;
         _webFullscreenHide = null;
+        _youtubeCast = false;
         _showControls = true;
       });
       _startHideTimer();
     }
+  }
+
+  // --- YouTube "Transmitir" (DIAL) ----------------------------------------------
+
+  Future<void> _startDial() async {
+    final ip = _localIp;
+    if (ip == null) return;
+    final dial = DialService(
+      localIp: ip,
+      onLaunchYouTube: (query) {
+        // YouTube manda `pairingCode=…&theme=cl&…`; youtube.com/tv usa ese
+        // código para emparejarse con el celular que apretó "Transmitir".
+        final url = 'https://www.youtube.com/tv${query.isNotEmpty ? '?$query' : ''}';
+        if (_webSupported) {
+          _openInWebView(url, _tvUa, fromYouTubeCast: true);
+        } else {
+          launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+        }
+      },
+      onStopYouTube: () {
+        if (_youtubeCast) _closeWeb();
+      },
+    );
+    _dial = dial;
+    await dial.start();
   }
 
   Future<void> _initialize() async {
@@ -457,6 +498,7 @@ class _ReceiverModePageState extends ConsumerState<ReceiverModePage> {
 
     try {
       await signaling.startServer(
+        extraHandler: (request) async => _dial?.handle(request),
         onRemoteStream: (stream) {
           if (!mounted) return;
           // Llega video: si había una página web abierta, la cerramos.
@@ -499,6 +541,8 @@ class _ReceiverModePageState extends ConsumerState<ReceiverModePage> {
       debugPrint('Anuncio mDNS no disponible: $e');
     }
 
+    await _startDial();
+
     if (mounted) setState(() {});
   }
 
@@ -533,6 +577,7 @@ class _ReceiverModePageState extends ConsumerState<ReceiverModePage> {
     _remoteRenderer.srcObject = null;
     _remoteRenderer.dispose();
     _webFullscreenHide?.call();
+    _dial?.dispose();
     _signalingService?.dispose();
     _broadcast?.stop();
     super.dispose();
@@ -903,6 +948,20 @@ class _ReceiverModePageState extends ConsumerState<ReceiverModePage> {
             'Abrí la app en tu PC o celular y elegí este receptor  •  $version',
             style: const TextStyle(color: Colors.white38, fontSize: 11),
           ),
+          if (_dial != null) ...[
+            const SizedBox(height: 8),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: const [
+                Icon(Icons.cast, color: Colors.white38, size: 14),
+                SizedBox(width: 6),
+                Text(
+                  'También aparece en el botón "Transmitir" de la app de YouTube',
+                  style: TextStyle(color: Colors.white38, fontSize: 11),
+                ),
+              ],
+            ),
+          ],
         ],
       ),
     );

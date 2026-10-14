@@ -1,7 +1,9 @@
 package com.njb.proyectores
 
 import android.app.Activity
+import android.content.Context
 import android.content.Intent
+import android.net.wifi.WifiManager
 import android.media.projection.MediaProjectionManager
 import android.os.Build
 import android.os.Bundle
@@ -25,6 +27,7 @@ class MainActivity : FlutterActivity() {
     private lateinit var guardian: ScreenGuardian
     private var shareChannel: MethodChannel? = null
     private var pendingSharedText: String? = null
+    private var multicastLock: WifiManager.MulticastLock? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -76,6 +79,24 @@ class MainActivity : FlutterActivity() {
                     } catch (_: Throwable) {
                     }
                     result.success(null)
+                }
+                "multicastLock" -> {
+                    // Necesario para recibir SSDP (botón "Transmitir" de YouTube).
+                    val on = call.argument<Boolean>("on") ?: true
+                    try {
+                        if (on) {
+                            if (multicastLock == null) {
+                                val wifi = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
+                                multicastLock = wifi.createMulticastLock("njb-ssdp").apply { setReferenceCounted(false) }
+                            }
+                            multicastLock?.acquire()
+                        } else {
+                            if (multicastLock?.isHeld == true) multicastLock?.release()
+                        }
+                        result.success(true)
+                    } catch (t: Throwable) {
+                        result.success(false)
+                    }
                 }
                 else -> result.notImplemented()
             }
@@ -162,6 +183,10 @@ class MainActivity : FlutterActivity() {
 
     override fun onDestroy() {
         guardian.stop()
+        try {
+            if (multicastLock?.isHeld == true) multicastLock?.release()
+        } catch (_: Throwable) {
+        }
         super.onDestroy()
     }
 }

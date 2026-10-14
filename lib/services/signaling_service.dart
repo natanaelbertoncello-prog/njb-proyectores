@@ -124,12 +124,17 @@ class SignalingService {
   Future<void> startServer({
     required OnRemoteStream onRemoteStream,
     required OnSettingsUpdated onSettings,
+    Future<Response?> Function(Request request)? extraHandler,
   }) async {
     final wsHandler = webSocketHandler((WebSocketChannel ws, String? protocol) {
       _attachServerChannel(ws, onRemoteStream, onSettings);
     });
 
     Future<Response> handler(Request request) async {
+      if (extraHandler != null) {
+        final extra = await extraHandler(request);
+        if (extra != null) return extra;
+      }
       if (request.method == 'GET' && request.url.path == 'info') {
         return Response.ok(
           jsonEncode(await localInfo()),
