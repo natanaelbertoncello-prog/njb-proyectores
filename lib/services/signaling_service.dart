@@ -20,6 +20,13 @@ typedef OnPeerInfo = void Function(PeerInfo info);
 /// Orden para el navegador integrado del receptor (`{'cmd': 'open', 'url': ...}`).
 typedef OnWebCommand = void Function(Map<String, dynamic> command);
 
+/// Cuadro JPEG de una "proyección de pestaña" (NJB NAV): llega como mensaje
+/// binario por el mismo WebSocket, sin WebRTC.
+typedef OnFrame = void Function(Uint8List jpeg);
+
+/// Inicio / fin de una proyección de pestaña (`{'type': 'frames', 'state': 'start'|'stop', 'title': ...}`).
+typedef OnFramesState = void Function(bool activo, Map<String, dynamic> datos);
+
 /// Datos que cada extremo envía al conectarse (`hello`).
 class PeerInfo {
   final String name;
@@ -80,6 +87,10 @@ class SignalingService {
 
   /// Receptor: órdenes para el navegador integrado.
   OnWebCommand? onWebCommand;
+
+  /// Receptor: cuadros de una pestaña proyectada desde NJB NAV.
+  OnFrame? onFrame;
+  OnFramesState? onFramesState;
 
   PeerInfo? remotePeer;
 
@@ -178,6 +189,11 @@ class SignalingService {
   }
 
   Future<void> _onServerMessage(dynamic message, OnRemoteStream onRemoteStream, OnSettingsUpdated onSettings) async {
+    // Binario = cuadro JPEG de una pestaña proyectada desde NJB NAV.
+    if (message is List<int>) {
+      onFrame?.call(message is Uint8List ? message : Uint8List.fromList(message));
+      return;
+    }
     final data = _decode(message);
     if (data == null) return;
 
@@ -205,6 +221,8 @@ class SignalingService {
           onSettings(MirroringSettings.fromMap(Map<String, dynamic>.from(data['settings'])));
         case 'web':
           onWebCommand?.call(data);
+        case 'frames':
+          onFramesState?.call(data['state'] != 'stop', data);
         case 'bye':
           _handleDisconnect('El emisor detuvo la transmisión');
       }

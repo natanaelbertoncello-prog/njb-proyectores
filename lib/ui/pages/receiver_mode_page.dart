@@ -2,6 +2,7 @@ import 'dart:math' as math;
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io' show Platform;
+import 'dart:typed_data';
 import 'dart:ui';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/gestures.dart' show PointerHoverEvent;
@@ -47,6 +48,12 @@ class _ReceiverModePageState extends ConsumerState<ReceiverModePage> {
   // Guardián anti-screensaver (nativo en Android).
   ScreenGuardianStatus _guardian = const ScreenGuardianStatus();
   Timer? _guardianRefresh;
+
+  // Pestaña proyectada desde NJB NAV: cuadros JPEG por el WebSocket. El cuadro
+  // va en un ValueNotifier para no redibujar toda la pantalla 20 veces por segundo.
+  final ValueNotifier<Uint8List?> _frame = ValueNotifier<Uint8List?>(null);
+  bool _framesActivo = false;
+  String _framesTitulo = '';
 
   // Navegador integrado ("proyectar una página web").
   WebViewController? _web;
@@ -515,6 +522,33 @@ class _ReceiverModePageState extends ConsumerState<ReceiverModePage> {
     };
     signaling.onDisconnected = _onSenderLost;
     signaling.onWebCommand = _onWebCommand;
+    signaling.onFramesState = (activo, datos) {
+      if (!mounted) return;
+      if (activo) {
+        if (_webUrl != null) _closeWeb();
+        setState(() {
+          _framesActivo = true;
+          _framesTitulo = (datos['title'] ?? '').toString();
+          _lastDisconnectReason = null;
+          _showControls = false;
+        });
+      } else {
+        _detenerFrames();
+      }
+    };
+    signaling.onFrame = (jpeg) {
+      if (!mounted) return;
+      if (!_framesActivo) {
+        if (_webUrl != null) _closeWeb();
+        setState(() {
+          _framesActivo = true;
+          _showControls = false;
+        });
+      }
+      _frame.value = jpeg;
+    };
+    // Sin cuadros nuevos no se corta: una página quieta no manda nada. Solo se
+    // vuelve a "esperando" si se cae la conexión (onDisconnected).
     _signalingService = signaling;
 
     try {
@@ -567,8 +601,20 @@ class _ReceiverModePageState extends ConsumerState<ReceiverModePage> {
     if (mounted) setState(() {});
   }
 
+  void _detenerFrames() {
+    _frame.value = null;
+    if (!mounted) return;
+    setState(() {
+      _framesActivo = false;
+      _framesTitulo = '';
+      _showControls = true;
+    });
+    _startHideTimer();
+  }
+
   void _onSenderLost(String reason) {
     if (!mounted) return;
+    if (_framesActivo) _detenerFrames();
     setState(() {
       _isConnected = false;
       _remoteRenderer.srcObject = null;
@@ -591,6 +637,7 @@ class _ReceiverModePageState extends ConsumerState<ReceiverModePage> {
     _statsTimer?.cancel();
     _hideTimer?.cancel();
     _cursorHide?.cancel();
+    _frame.dispose();
     ScreenGuardian.stop();
     try {
       WakelockPlus.disable();
@@ -623,6 +670,30 @@ class _ReceiverModePageState extends ConsumerState<ReceiverModePage> {
               Center(
                 child: _isConnected ? _buildFilteredVideo() : _buildWaitingUI(),
               ),
+
+              // Pestaña proyectada desde NJB NAV (cuadros JPEG).
+              if (_framesActivo)
+                Positioned.fill(
+                  child: ColoredBox(
+                    color: Colors.black,
+                    child: ValueListenableBuilder<Uint8List?>(
+                      valueListenable: _frame,
+                      builder: (context, jpeg, _) => jpeg == null
+                          ? Center(
+                              child: Text(
+                                _framesTitulo.isEmpty ? 'Esperando la pestaña…' : 'Esperando "$_framesTitulo"…',
+                                style: const TextStyle(color: Colors.white54, fontSize: 18),
+                              ),
+                            )
+                          : Image.memory(
+                              jpeg,
+                              fit: BoxFit.contain,
+                              gaplessPlayback: true, // sin parpadeo entre cuadros
+                              filterQuality: FilterQuality.medium,
+                            ),
+                    ),
+                  ),
+                ),
 
               // Navegador integrado, por encima del video o de la espera.
               if (_webUrl != null && _web != null)
