@@ -5,7 +5,7 @@ publish_to: 'none'
 # Formato: MAYOR.MENOR.PARCHE+BUILD
 # El script tools/publicar.ps1 incrementa este número y crea el tag vX.Y.Z
 # que dispara la compilación y publicación automática en GitHub.
-version: 1.1.11+13
+version: 1.1.12+14
 
 environment:
   sdk: '>=3.3.0 <4.0.0'
