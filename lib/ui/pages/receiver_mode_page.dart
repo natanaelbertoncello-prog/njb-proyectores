@@ -1,4 +1,3 @@
-import 'dart:math' as math;
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io' show Platform;
@@ -44,6 +43,10 @@ class _ReceiverModePageState extends ConsumerState<ReceiverModePage> {
   String? _lastDisconnectReason;
   PeerInfo? _senderPeer;
   MirroringSettings _settings = MirroringSettings();
+
+  // Shader de nitidez (máscara de enfoque). Null si el motor no soporta
+  // filtros con shader (sin Impeller): ahí la nitidez simplemente no aplica.
+  FragmentShader? _sharpenShader;
 
   // Guardián anti-screensaver (nativo en Android).
   ScreenGuardianStatus _guardian = const ScreenGuardianStatus();
@@ -106,9 +109,21 @@ class _ReceiverModePageState extends ConsumerState<ReceiverModePage> {
     _startStatsTimer();
     _startHideTimer();
     _startKeepAlive();
+    _loadSharpenShader();
     if (_isDesktop) {
       // Una PC como receptor: pantalla completa, sin barra de título.
       windowManager.setFullScreen(true).catchError((_) {});
+    }
+  }
+
+  Future<void> _loadSharpenShader() async {
+    if (!ImageFilter.isShaderFilterSupported) return;
+    try {
+      final program = await FragmentProgram.fromAsset('shaders/sharpen.frag');
+      if (!mounted) return;
+      setState(() => _sharpenShader = program.fragmentShader());
+    } catch (e) {
+      debugPrint('Shader de nitidez no disponible: $e');
     }
   }
 
@@ -638,6 +653,7 @@ class _ReceiverModePageState extends ConsumerState<ReceiverModePage> {
     _hideTimer?.cancel();
     _cursorHide?.cancel();
     _frame.dispose();
+    _sharpenShader?.dispose();
     ScreenGuardian.stop();
     try {
       WakelockPlus.disable();
@@ -867,55 +883,7 @@ class _ReceiverModePageState extends ConsumerState<ReceiverModePage> {
   }
 
   Widget _buildFilteredVideo() {
-    final double exp = math.pow(2.0, _settings.exposure).toDouble();
-    final double b = _settings.brightness * exp;
-    final List<double> brightnessMatrix = <double>[
-      b, 0.0, 0.0, 0.0, 0.0,
-      0.0, b, 0.0, 0.0, 0.0,
-      0.0, 0.0, b, 0.0, 0.0,
-      0.0, 0.0, 0.0, 1.0, 0.0,
-    ];
-
-    final double c = _settings.contrast + (_settings.sharpness * 0.6);
-    final double off = 0.5 * (1.0 - c);
-    final List<double> contrastMatrix = <double>[
-      c, 0.0, 0.0, 0.0, off * 255.0,
-      0.0, c, 0.0, 0.0, off * 255.0,
-      0.0, 0.0, c, 0.0, off * 255.0,
-      0.0, 0.0, 0.0, 1.0, 0.0,
-    ];
-
-    final double s = _settings.saturation;
-    final double invS = 1.0 - s;
-    final double r = 0.2126 * invS;
-    final double g = 0.7152 * invS;
-    final double bl = 0.0722 * invS;
-    final List<double> saturationMatrix = <double>[
-      r + s, g, bl, 0.0, 0.0,
-      r, g + s, bl, 0.0, 0.0,
-      r, g, bl + s, 0.0, 0.0,
-      0.0, 0.0, 0.0, 1.0, 0.0,
-    ];
-
-    final double hue = _settings.hue;
-    final double cosVal = math.cos(hue);
-    final double sinVal = math.sin(hue);
-    const double lumR = 0.213;
-    const double lumG = 0.715;
-    const double lumB = 0.072;
-    final List<double> hueMatrix = <double>[
-      lumR + cosVal * (1 - lumR) + sinVal * (-lumR), lumG + cosVal * (-lumG) + sinVal * (-lumG), lumB + cosVal * (-lumB) + sinVal * (1 - lumB), 0, 0,
-      lumR + cosVal * (-lumR) + sinVal * (0.143), lumG + cosVal * (1 - lumG) + sinVal * (0.140), lumB + cosVal * (-lumB) + sinVal * (-0.283), 0, 0,
-      lumR + cosVal * (-lumR) + sinVal * (-(1 - lumR)), lumG + cosVal * (-lumG) + sinVal * (lumG), lumB + cosVal * (1 - lumB) + sinVal * (lumB), 0, 0,
-      0, 0, 0, 1, 0,
-    ];
-
-    final bool isNeutral = _settings.brightness == 1.0 &&
-        _settings.contrast == 1.0 &&
-        _settings.saturation == 1.0 &&
-        _settings.sharpness == 0.0 &&
-        _settings.hue == 0.0 &&
-        _settings.exposure == 0.0;
+    final FragmentShader? sharpen = _settings.sharpness > 0.0 ? _sharpenShader : null;
 
     final Widget video;
     switch (_settings.fitMode) {
@@ -955,30 +923,19 @@ class _ReceiverModePageState extends ConsumerState<ReceiverModePage> {
         );
     }
 
-    // Con los ajustes en neutro evitamos cuatro pasadas de filtro de color:
-    // en proyectores con GPU débil se nota en la fluidez.
-    if (isNeutral) {
-      return Container(color: Colors.black, child: SizedBox.expand(child: video));
+    // Con los colores en neutro evitamos la pasada de filtro de color: en
+    // proyectores con GPU débil se nota en la fluidez.
+    Widget out = video;
+    if (sharpen != null) {
+      // uSize (floats 0 y 1) lo carga el motor; la intensidad va en el 2.
+      sharpen.setFloat(2, _settings.sharpness * 0.5);
+      out = ImageFiltered(imageFilter: ImageFilter.shader(sharpen), child: out);
+    }
+    if (!_settings.isColorNeutral) {
+      out = ColorFiltered(colorFilter: ColorFilter.matrix(_settings.colorMatrix()), child: out);
     }
 
-    return Container(
-      color: Colors.black,
-      child: SizedBox.expand(
-        child: ColorFiltered(
-          colorFilter: ColorFilter.matrix(hueMatrix),
-          child: ColorFiltered(
-            colorFilter: ColorFilter.matrix(brightnessMatrix),
-            child: ColorFiltered(
-              colorFilter: ColorFilter.matrix(contrastMatrix),
-              child: ColorFiltered(
-                colorFilter: ColorFilter.matrix(saturationMatrix),
-                child: video,
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
+    return Container(color: Colors.black, child: SizedBox.expand(child: out));
   }
 
   Widget _buildWaitingUI() {

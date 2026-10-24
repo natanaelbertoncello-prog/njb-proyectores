@@ -125,14 +125,26 @@ class MirroringSettingsPanel extends ConsumerWidget {
 
             const Divider(color: Colors.white10, height: 36),
             _buildSectionTitle('CALIBRACIÓN EXTREMA DE LENTE Y COLOR'),
-            const SizedBox(height: 12),
+            const SizedBox(height: 10),
+            _buildColorPresetSelector(ref, settings),
+            const SizedBox(height: 14),
+
+            _buildSlider(
+              label: 'TEMPERATURA (FRÍO ↔ CÁLIDO)',
+              icon: Icons.thermostat,
+              value: settings.temperature,
+              min: -1.0,
+              max: 1.0,
+              color: Colors.deepOrangeAccent,
+              onChanged: (v) => ref.read(mirroringProvider.notifier).updateSettings(settings.copyWith(temperature: v)),
+            ),
 
             _buildSlider(
               label: 'EXPOSICIÓN',
               icon: Icons.exposure,
               value: settings.exposure,
-              min: -2.0,
-              max: 2.0,
+              min: -1.0,
+              max: 1.0,
               color: Colors.white,
               onChanged: (v) => ref.read(mirroringProvider.notifier).updateSettings(settings.copyWith(exposure: v)),
             ),
@@ -141,8 +153,8 @@ class MirroringSettingsPanel extends ConsumerWidget {
               label: 'BRILLO (LENTE INTENSO)',
               icon: Icons.light_mode,
               value: settings.brightness,
-              min: 0.0,
-              max: 4.0, 
+              min: 0.3,
+              max: 2.0,
               color: goldAccent,
               onChanged: (v) => ref.read(mirroringProvider.notifier).updateSettings(settings.copyWith(brightness: v)),
             ),
@@ -151,8 +163,8 @@ class MirroringSettingsPanel extends ConsumerWidget {
               label: 'CONTRASTE DINÁMICO',
               icon: Icons.contrast,
               value: settings.contrast,
-              min: 0.0,
-              max: 4.0,
+              min: 0.5,
+              max: 2.0,
               color: Colors.blueAccent,
               onChanged: (v) => ref.read(mirroringProvider.notifier).updateSettings(settings.copyWith(contrast: v)),
             ),
@@ -162,7 +174,7 @@ class MirroringSettingsPanel extends ConsumerWidget {
               icon: Icons.palette,
               value: settings.saturation,
               min: 0.0,
-              max: 4.0,
+              max: 2.0,
               color: neonPink,
               onChanged: (v) => ref.read(mirroringProvider.notifier).updateSettings(settings.copyWith(saturation: v)),
             ),
@@ -370,6 +382,52 @@ class MirroringSettingsPanel extends ConsumerWidget {
     );
   }
 
+  Widget _buildColorPresetSelector(WidgetRef ref, MirroringSettings settings) {
+    final active = settings.activeColorPreset;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: MirroringSettings.colorPresets.entries.map((e) {
+            final isSelected = e.key == active;
+            return ChoiceChip(
+              label: Text(e.key, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+              selected: isSelected,
+              selectedColor: neonPink,
+              backgroundColor: Colors.white.withValues(alpha: 0.06),
+              labelStyle: TextStyle(color: isSelected ? Colors.black : Colors.white70),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+                side: BorderSide(color: isSelected ? neonPink : Colors.transparent),
+              ),
+              onSelected: (_) {
+                final p = e.value;
+                ref.read(mirroringProvider.notifier).updateSettings(
+                      ref.read(mirroringProvider).settings.copyWith(
+                            brightness: p.brightness,
+                            contrast: p.contrast,
+                            saturation: p.saturation,
+                            temperature: p.temperature,
+                            hue: 0.0,
+                            exposure: 0.0,
+                          ),
+                    );
+              },
+            );
+          }).toList(),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          active != null ? MirroringSettings.colorPresets[active]!.hint : 'Color personalizado.',
+          style: const TextStyle(color: Colors.white38, fontSize: 10),
+        ),
+      ],
+    );
+  }
+
   static const _codecHints = {
     'auto': 'AUTO: deja que la PC y el proyector negocien (suele ser VP8).',
     'VP8': 'VP8: el más liviano para la PC. Si el HUD dice "LÍMITE: CPU", usá este.',
@@ -463,7 +521,8 @@ class MirroringSettingsPanel extends ConsumerWidget {
             overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
           ),
           child: Slider(
-            value: value,
+            // Ajustes guardados con los rangos viejos (hasta 400%) pueden quedar fuera.
+            value: value.clamp(min, max),
             min: min,
             max: max,
             divisions: divisions,
