@@ -701,12 +701,7 @@ class _ReceiverModePageState extends ConsumerState<ReceiverModePage> {
                                 style: const TextStyle(color: Colors.white54, fontSize: 18),
                               ),
                             )
-                          : Image.memory(
-                              jpeg,
-                              fit: BoxFit.contain,
-                              gaplessPlayback: true, // sin parpadeo entre cuadros
-                              filterQuality: FilterQuality.medium,
-                            ),
+                          : _buildFilteredFrame(jpeg),
                     ),
                   ),
                 ),
@@ -880,6 +875,34 @@ class _ReceiverModePageState extends ConsumerState<ReceiverModePage> {
         ],
       ),
     );
+  }
+
+  /// Pestaña proyectada desde NJB NAV, con los mismos ajustes de imagen que el
+  /// video (brillo, contraste, color, temperatura, nitidez y encuadre). Antes
+  /// se mostraba tal cual llegaba: los ajustes no tenían efecto en este modo.
+  Widget _buildFilteredFrame(Uint8List jpeg) {
+    final FragmentShader? sharpen = _settings.sharpness > 0.0 ? _sharpenShader : null;
+    final BoxFit fit = switch (_settings.fitMode) {
+      'cover' => BoxFit.cover,
+      'stretch' => BoxFit.fill,
+      _ => BoxFit.contain,
+    };
+    Widget out = SizedBox.expand(
+      child: Image.memory(
+        jpeg,
+        fit: fit,
+        gaplessPlayback: true, // sin parpadeo entre cuadros
+        filterQuality: FilterQuality.medium,
+      ),
+    );
+    if (sharpen != null) {
+      sharpen.setFloat(2, _settings.sharpness * 0.5);
+      out = ImageFiltered(imageFilter: ImageFilter.shader(sharpen), child: out);
+    }
+    if (!_settings.isColorNeutral) {
+      out = ColorFiltered(colorFilter: ColorFilter.matrix(_settings.colorMatrix()), child: out);
+    }
+    return out;
   }
 
   Widget _buildFilteredVideo() {
